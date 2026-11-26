@@ -332,11 +332,13 @@ class QMPackage private constructor() {
                 settingList = field { name = settingListField.name }
             }
             userInfoHolder = UserInfoHolder().apply {
+                // 方法名 showTaskAndVipBubble 未混淆，直接按名取。
                 val showBubbleMethod =
-                    "com.tencent.qqmusic.modular.module.musichall.views.viewholders.cell.MyMusicUserInfoViewHolder"
+                    "com.tencent.qqmusic.modular.module.musichall.views.viewholders.cell.MyMusicBubbleViewHolder"
                         .from(classLoader)?.declaredMethods?.find {
                             it.name == "showTaskAndVipBubble"
                         } ?: run {
+                        // 兜底：老链路（refreshVipIcons 宿主 + 短签名 VL 的 final 方法）
                         val clazz = dexHelper.findMethodUsingString("refreshVipIcons")
                             .firstOrNull()?.let { dexHelper.decodeMethodIndex(it) }
                             ?.declaringClass ?: return@apply
@@ -367,12 +369,14 @@ class QMPackage private constructor() {
                 }
             }
             topAreaDelegate = TopAreaDelegate().apply {
-                val initLiveGuideMethod = dexHelper.findMethodUsingString(
-                    "[initLiveGuide]"
-                ).firstOrNull()?.let { dexHelper.decodeMethodIndex(it) } ?: return@apply
-                val showCurListenMethod = dexHelper.findMethodUsingString(
-                    "[showCurrentListen]--block by long audio ad recall entrance show"
-                ).firstOrNull()?.let { dexHelper.decodeMethodIndex(it) }
+            topAreaDelegate = TopAreaDelegate().apply {
+                // 21.x：initLiveGuide 搬到了 playernew/view/live/g0（老的 topAreaDelegate 类没了）。
+                // 锚点字符串 "[initLiveGuide]" 还活着（两个方法共用，取第一个即可——都是同类引导）。
+                val initLiveGuideMethod = dexHelper.findMethodUsingString("[initLiveGuide]")
+                    .firstOrNull()?.let { dexHelper.decodeMethodIndex(it) } ?: return@apply
+                // showCurrentListen 的长锚点在 21.x 已消失；当前收听入口挪进了 currentlisten 包，
+                // 保守起见不再解析（对应功能降级为"只关直播引导"）。
+                val showCurListenMethod: java.lang.reflect.Member? = null
                 val clazz = initLiveGuideMethod.declaringClass
                 val classIndex = dexHelper.encodeClassIndex(clazz)
                 val showShareGuideMethod = dexHelper.findMethodUsingString(
@@ -834,4 +838,5 @@ class QMPackage private constructor() {
             dexHelper.close()
         }
     }
+}
 }
