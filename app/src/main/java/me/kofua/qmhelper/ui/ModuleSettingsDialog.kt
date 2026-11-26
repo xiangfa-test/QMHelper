@@ -15,6 +15,7 @@ import me.kofua.qmhelper.R
 import me.kofua.qmhelper.setting.Setting
 import me.kofua.qmhelper.setting.SettingPack
 import me.kofua.qmhelper.utils.Log
+import me.kofua.qmhelper.utils.isBlackSkinInUse
 import me.kofua.qmhelper.utils.dp
 
 /**
@@ -65,8 +66,13 @@ object ModuleSettingsDialog {
                 dialog = null
             }
             val context: Context = activity
-            val dark = (context.resources.configuration.uiMode and
-                    Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            // 跟 Q音 皮肤而不是系统深色模式：Q音 自己管理换肤（黑色皮肤 skinId=901），
+            // 系统 uiMode 常和实际显示的皮肤不一致。
+            val dark = runCatching { isBlackSkinInUse }
+                .getOrElse {
+                    context.resources.configuration.uiMode and
+                            Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+                }
             val d = AlertDialog.Builder(context)
                 .setTitle(R.string.app_name)
                 .setView(buildContent(context, dark))

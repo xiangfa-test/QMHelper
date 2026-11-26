@@ -1,8 +1,8 @@
 package me.kofua.qmhelper.setting
 
+import android.app.Activity
 import android.content.Context
-import android.view.View
-import androidx.annotation.StringRes
+import android.os.Bundle
 import me.kofua.qmhelper.classLoader
 import me.kofua.qmhelper.from
 import me.kofua.qmhelper.hookInfo
@@ -14,120 +14,129 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * 把模块设置装进 Q音 **原生设置框架**（21.x 版）。
  *
- * ## 页面从哪来
- *
- * 21.x 里宿主自己的设置页都继承 `fragment.debug.BaseRecyclerSettingFragment`，
- * 它只有两个抽象方法：
- *
- * ```kotlin
- * title():String                          // 页面标题（标题栏）
- * settingPackage():BaseSettingPackage     // 设置项来源
- * ```
- *
- * 所以"原生 UI" = dexmaker 生成它的子类，覆写这两个方法：
- *
- *  - `title()` → 「Q音助手」
- *  - `settingPackage()` → 一个 `BaseSettingPackage` 子类实例，
- *    其 `createSettingProvider()` 返回模块的设置项列表
- *
- * ## 设置项怎么造
- *
- * 每条设置 = 一个 **`SettingProvider` 的动态代理**（它是个接口，`java.lang.reflect.Proxy` 就够，
- * 不需要 dexmaker）：
+ * 框架（反编译核对过，类名/方法名未混淆）：
  *
  * ```
- * getSetting()  → 宿主 Setting$Builder 构造的 Setting 对象（原生渲染、原生样式）
- * shouldShown() → true
+ * fragment.debug.BaseRecyclerSettingFragment（抽象类，无参构造）
+ *   title():String                       抽象 —— 标题栏文字
+ *   settingPackage():BaseSettingPackage  抽象 —— 条目来源
+ * settings.base.BaseSettingPackage（抽象类）
+ *   <init>(Context, SettingEvent, Bundle)
+ *   createSettingProvider():CopyOnWriteArrayList
+ * settings.base.SettingProvider（接口） getSetting():Setting / shouldShown()…
+ * settings.base.SettingEvent（接口）    包构造器要的事件回调
+ * settings.view.SettingView$d（接口）   开关回调 isSwitchOn()/onSwitchStatusChange(Z)
  * ```
  *
- * 开关回调 = `SettingView$d` 的动态代理（同样只是接口）：
- * `isSwitchOn()` 读配置，`onSwitchStatusChange(boolean)` 写配置。
+ * ## 实例化手法（关键，踩过坑）
  *
- * ## 与旧版（1.1.4）的差异
+ * `ProxyBuilder.setInvocationHandler` 只接受代理**实例**，挂在 Class 上会抛
+ * "Not a valid proxy instance"。而页面由宿主通过 `addSecondFragment(Class)` 反射实例化，
+ * 我们拿不到"创建后"的时机 —— 所以用上游 1.1.4 的老手法：
  *
- * 旧版代理的是 `BaseSettingFragment/BaseSettingPack/BaseSettingProvider` 三件套 —— 21.x 里
- * `BaseSettingFragment` 没了，等价物是 `BaseRecyclerSettingFragment`；`BaseSettingPack` 改名
- * `BaseSettingPackage`；`BaseSettingProvider` 从类变成了接口（Proxy 反而更省事）。
- * 老的三件套解析（baseSettingFragment/baseSettingPack/baseSettingProvider）在 21.x 定位不到
- * 是正常的，这里走的是 `hookInfo.setting.nativeUi` 这套新定位。
+ * 1. hook 基类构造器（before）；
+ * 2. 调 `addSecondFragment(我们的代理类)`，宿主反射 new 的瞬间被钩住；
+ * 3. 判断 `thisObject` 是不是我们的代理类，是就当场 `setInvocationHandler`；
+ * 4. unhook。
+ *
+ * Pack 实例由 fragment 的 `settingPackage()` 回调自己创建，创建后立刻挂实例 handler。
  */
 object NativeSettingsPage {
 
     private const val PAGE_TITLE = "Q音助手"
+    private const val FRAGMENT_CLASS = "com.tencent.qqmusic.fragment.debug.BaseRecyclerSettingFragment"
+    private const val PACKAGE_CLASS = "com.tencent.qqmusic.fragment.morefeatures.settings.base.BaseSettingPackage"
+    private const val EVENT_CLASS = "com.tencent.qqmusic.fragment.morefeatures.settings.base.SettingEvent"
+    private const val PROVIDER_CLASS = "com.tencent.qqmusic.fragment.morefeatures.settings.base.SettingProvider"
 
-    /** 页面类；解析或生成失败时为 null（入口会退回自绘 Dialog）。 */
     @Volatile
-    private var fragmentClass: Class<*>? = null
-
-    /** 本页 Package 子类缓存（同一个页面只生成一次）。 */
+    private var fragProxyClass: Class<*>? = null
     @Volatile
     private var packProxyClass: Class<*>? = null
 
     fun isAvailable(): Boolean = hookInfo.setting.nativeUi.fragmentClass.isNotEmpty()
 
     /**
-     * 创建（或复用）模块设置页的 Fragment 实例。
+     * 在宿主当前窗口打开模块的原生设置页。
      *
-     * 调用方（SettingsHook 的入口点击）拿到后直接
-     * `context.callMethod("addSecondFragment", fragmentClass, null)` 打开。
+     * @param addSecondFragment 宿主的打开方法（`BaseFragmentActivity#addSecondFragment`）
+     * @return true = 已走原生通道；false = 框架不可用（调用方退回 Dialog 兜底）
      */
-    fun newFragmentInstance(context: Context): Any? {
-        val clazz = ensureFragmentClass(context) ?: return null
-        // BaseRecyclerSettingFragment 构造器是无参的（<init>()V）
-        return runCatchingOrNull { clazz.new() }
+    fun openInHost(activity: Activity, addSecondFragment: me.kofua.qmhelper.data.Method): Boolean {
+        if (!isAvailable()) return false
+        val (fragClass, _) = ensureProxyClasses() ?: return false
+        return runCatching {
+            val context = activity
+            val nativeUi = hookInfo.setting.nativeUi
+
+            // Pack handler：createSettingProvider → 模块条目列表。
+            val packHandler = java.lang.reflect.InvocationHandler { _, method, _ ->
+                when (method.name) {
+                    nativeUi.createSettingProviderMethod -> buildProviders(context)
+                    else -> null
+                }
+            }
+            val packClass = packProxyClass ?: return false
+
+            // Fragment handler：title / settingPackage。
+            // settingPackage 里当场 new Pack 实例并挂实例级 handler。
+            val fragHandler = java.lang.reflect.InvocationHandler { _, method, _ ->
+                when (method.name) {
+                    nativeUi.titleMethod -> PAGE_TITLE
+                    nativeUi.settingPackageMethod -> newPackInstance(packClass, context, packHandler)
+                    else -> null
+                }
+            }
+
+            // 构造器钩子：宿主 new 我们代理类的瞬间挂 handler（上游 1.1.4 同款手法）。
+            val baseClass = FRAGMENT_CLASS.from(classLoader) ?: return false
+            val unhooks = baseClass.hookBeforeAllConstructors { param ->
+                val inst = param.thisObject ?: return@hookBeforeAllConstructors
+                if (inst.javaClass.name == fragClass.name) {
+                    runCatching { inst.invocationHandler(fragHandler) }
+                }
+            }
+            try {
+                activity.callMethod(addSecondFragment.name, fragClass, null)
+                Log.d("模块设置：已打开原生设置页（${fragClass.name}）")
+                true
+            } finally {
+                unhooks.forEach { h -> runCatching { h?.unhook() } }
+            }
+        }.onFailure {
+            Log.e("模块设置：原生页打开失败")
+            Log.e(it)
+        }.getOrDefault(false)
     }
 
-    /** 拿页面类（给 addSecondFragment 用 —— 宿主要的是 Class 而不是实例）。 */
-    fun fragmentClass(context: Context): Class<*>? = ensureFragmentClass(context)
+    /** 供 Dialog 兜底前的可用性判断 + 入口点击的退路。 */
+    fun switchListenerProxy(isSwitchOn: () -> Boolean, onChange: (Boolean) -> Unit): Any? {
+        val viewD = qmPackage.switchListenerClass ?: return null
+        return Proxy.newProxyInstance(classLoader, arrayOf(viewD)) { _, method, args ->
+            when (method.name) {
+                hookInfo.setting.switchListener.isSwitchOn.name -> isSwitchOn()
+                hookInfo.setting.switchListener.onSwitchStatusChange.name -> onChange(args?.getOrNull(0) as? Boolean ?: false)
+            }
+            null
+        }
+    }
 
     // ------------------------------------------------------------------ 内部
 
-    private fun ensureFragmentClass(context: Context): Class<*>? {
-        fragmentClass?.let { return it }
+    /** 生成（或复用）两个动态子类。失败返回 null。 */
+    private fun ensureProxyClasses(): Pair<Class<*>, Class<*>>? {
+        fragProxyClass?.let { f -> packProxyClass?.let { p -> return f to p } }
         synchronized(this) {
-            fragmentClass?.let { return it }
+            fragProxyClass?.let { f -> packProxyClass?.let { p -> return f to p } }
             val nativeUi = hookInfo.setting.nativeUi
-            if (nativeUi.fragmentClass.isEmpty()) return null
-            val baseFragmentClass = nativeUi.fragmentClass.from(classLoader) ?: return null
-            val basePackClass = nativeUi.packageClass.from(classLoader) ?: return null
-
+            val baseFrag = nativeUi.fragmentClass.from(classLoader) ?: return null
+            val basePack = nativeUi.packageClass.from(classLoader) ?: return null
             return runCatching {
-                // 1) Package 子类：覆写 createSettingProvider() 返回模块条目。
-                val packClass = (packProxyClass ?: basePackClass.proxy(nativeUi.createSettingProviderMethod)
-                    .also { packProxyClass = it })
-                // 2) Fragment 子类：覆写 title()/settingPackage()。
-                val fragClass = baseFragmentClass.proxy(nativeUi.titleMethod, nativeUi.settingPackageMethod)
-
-                // Fragment 实例的行为：title 返回固定文案；settingPackage 返回 Pack 实例。
-                // 这里不装 invocationHandler —— 实例创建时装（见 newFragmentInstance 内的 hookBefore 构造器拦截，
-                // 与老 QQMusicPlus 的 "constructor + setInvocationHandler" 手法一致）。
-                packClass.invocationHandler { pack, method, mArgs ->
-                    when (method.name) {
-                        nativeUi.createSettingProviderMethod ->
-                            buildProviders(context, pack)
-                        else -> null
-                    }
-                }
-                fragClass.invocationHandler { proxy, method, args ->
-                    when (method.name) {
-                        nativeUi.titleMethod -> PAGE_TITLE
-                        nativeUi.settingPackageMethod -> {
-                            // Pack 实例创建后要立刻把 handler 挂回去 —— ProxyBuilder.setInvocationHandler
-                            // 是按实例设置的，类级 handler 只对"下一个实例"生效。
-                            val pack = newPackInstance(packClass, context)
-                            pack?.invocationHandler { p, m, _ ->
-                                when (m.name) {
-                                    nativeUi.createSettingProviderMethod -> buildProviders(context, p)
-                                    else -> null
-                                }
-                            }
-                            pack
-                        }
-                        else -> null
-                    }
-                }
-                // 给 Pack 子类也预置 handler 工厂（实例创建时再挂真正的 handler）。
-                fragClass.also { fragmentClass = it }
+                val p = basePack.proxy(nativeUi.createSettingProviderMethod)
+                val f = baseFrag.proxy(nativeUi.titleMethod, nativeUi.settingPackageMethod)
+                packProxyClass = p
+                fragProxyClass = f
+                f to p
             }.onFailure {
                 Log.e("原生设置页：动态子类生成失败")
                 Log.e(it)
@@ -135,41 +144,29 @@ object NativeSettingsPage {
         }
     }
 
-    /** 造一个 Pack 实例：构造器要 (Context, SettingEvent, Bundle)，全部可从当前环境拼出来。 */
-    private fun newPackInstance(packClass: Class<*>, context: Context): Any? {
-        // SettingEvent 也是接口 —— Proxy 一个空实现即可（宿主用它回传列表刷新事件，
-        // 我们不需要监听，notifyEvent 走宿主自己的通道）。
-        val eventClass = "com.tencent.qqmusic.fragment.morefeatures.settings.base.SettingEvent"
-            .from(classLoader) ?: return null
-        val event = Proxy.newProxyInstance(
-            classLoader, arrayOf(eventClass)
-        ) { _, _, _ -> null }
-
-        return runCatchingOrNull {
-            packClass.new(context, event, null)
-        } ?: runCatchingOrNull {
-            // 某些版本构造器签名是 (Context, SettingEvent, Bundle) 且 Bundle 必传非 null
-            packClass.new(context, event, android.os.Bundle())
-        }
+    /** new 一个 Pack 实例并挂上实例级 handler。 */
+    private fun newPackInstance(
+        packClass: Class<*>,
+        context: Context,
+        handler: java.lang.reflect.InvocationHandler,
+    ): Any? {
+        val eventClass = EVENT_CLASS.from(classLoader) ?: return null
+        val event = Proxy.newProxyInstance(classLoader, arrayOf(eventClass)) { _, _, _ -> null }
+        val instance = runCatchingOrNull { packClass.new(context, event, Bundle()) }
+            ?: runCatchingOrNull { packClass.new(context, event, Bundle()) }
+            ?: return null
+        runCatching { instance.invocationHandler(handler) }
+            .onFailure { Log.e("原生设置页：Pack handler 挂载失败"); Log.e(it) }
+        return instance
     }
 
-    // ------------------------------------------------------------------ 条目
-
-    /**
-     * 构造本页的设置项列表（`createSettingProvider()` 的返回值）。
-     *
-     * 每条规格包装成一个 `SettingProvider` 动态代理；宿主的 RecyclerView
-     * 通过 `provider.getSetting()` 拿到原生 `Setting` 对象去渲染。
-     */
-    fun buildProviders(context: Context, fragment: Any): CopyOnWriteArrayList<Any?> {
-        val providerInterface =
-            "com.tencent.qqmusic.fragment.morefeatures.settings.base.SettingProvider".from(classLoader)
+    /** 本页条目：每条规格包成一个 SettingProvider 动态代理。 */
+    private fun buildProviders(context: Context): CopyOnWriteArrayList<Any?> {
         val list = CopyOnWriteArrayList<Any?>()
-        if (providerInterface == null) return list
-
-        val specs = runCatching { SettingPack().apply { activity = fragment as? android.app.Activity }.getSettings() }
+        val providerInterface = PROVIDER_CLASS.from(classLoader) ?: return list
+        val specs = runCatching { SettingPack().getSettings() }
+            .onFailure { Log.e("原生设置页：读取规格失败"); Log.e(it) }
             .getOrDefault(emptyList())
-
         for (spec in specs) {
             val hostSetting = spec.toHostSetting(context) ?: continue
             list.add(Proxy.newProxyInstance(classLoader, arrayOf(providerInterface)) { _, method, _ ->
@@ -180,18 +177,7 @@ object NativeSettingsPage {
                 }
             })
         }
+        Log.d("原生设置页：已构建 ${list.size} 条设置项")
         return list
-    }
-
-    /** 开关回调代理（SettingView$d）：读/写 sPrefs。 */
-    fun switchListener(isSwitchOn: () -> Boolean, onChange: (Boolean) -> Unit): Any? {
-        val viewD = qmPackage.switchListenerClass ?: return null
-        return Proxy.newProxyInstance(classLoader, arrayOf(viewD)) { _, method, args ->
-            when (method.name) {
-                hookInfo.setting.switchListener.isSwitchOn.name -> isSwitchOn()
-                hookInfo.setting.switchListener.onSwitchStatusChange.name -> onChange(args?.getOrNull(0) as? Boolean ?: false)
-            }
-            null
-        }
     }
 }
