@@ -161,64 +161,40 @@ class QMPackage private constructor() {
                 name = splashAdapterClass.name
             }
             homePageFragment = HomePageFragment().apply {
-                val initTabFragmentMethod = dexHelper.findMethodUsingString(
-                    "not support native tab, do nothing",
-                ).firstOrNull()?.run {
-                    dexHelper.findMethodInvoking(
-                        this,
-                        parameterShorty = "VI",
-                        findFirst = false
-                    ).asSequence().firstNotNullOfOrNull {
-                        dexHelper.decodeMethodIndex(it)?.takeIf { m ->
-                            m is Method && m.isNotStatic && m.isFinal
-                        }
-                    }
-                } ?: return@apply
-                clazz = clazz { name = initTabFragmentMethod.declaringClass.name }
-                initTabFragment = method {
-                    name = initTabFragmentMethod.name
-                    paramTypes = initTabFragmentMethod.paramTypes
+                // 21.x 首页 = business/timeline/ui/HomePageFragment（老 fragment.homepage 包已没了）。
+                // 类名未混淆，直接按名取；它的 tab 方法在 QMPackage 侧不用解析，
+                // tab 过滤的全部逻辑在 homeTopTab 里。
+                clazz = clazz {
+                    name = "com.tencent.qqmusic.business.timeline.ui.HomePageFragment"
+                        .from(classLoader)?.name ?: return@clazz
                 }
             }
-            mainDesktopHeader = MainDesktopHeader().apply {
-                val clazz = "com.tencent.qqmusic.ui.MainDesktopHeader".from(classLoader)
-                    ?: dexHelper.findMethodUsingString("MainDesktopHeader").firstOrNull()?.let {
-                        dexHelper.decodeMethodIndex(it)
-                    }?.declaringClass ?: return@apply
-                val clazzIndex = dexHelper.encodeClassIndex(clazz)
-                val addTabByIdMethod = dexHelper.findMethodUsingString(
-                    "iconUrl",
-                    declaringClass = clazzIndex,
-                ).asSequence().firstNotNullOfOrNull {
-                    dexHelper.decodeMethodIndex(it)
+            homeTopTab = HomeTopTab().apply {
+                // 过滤闸门：HomePageFragment#h5(x0):Boolean —— 每个 tab 进列表前都要过它。
+                // 反编译核对：Z6→j5→h5，h5 返回 false 宿主就不加这个 tab。
+                val homeFragmentClass = "com.tencent.qqmusic.business.timeline.ui.HomePageFragment"
+                    .from(classLoader) ?: return@apply
+                val x0Class = "com.tencent.qqmusic.fragment.mainpage.data.x0"
+                    .from(classLoader) ?: return@apply
+                val addTabMethod = homeFragmentClass.declaredMethods.firstOrNull { m ->
+                    m.parameterTypes.size == 1 && m.parameterTypes[0] == x0Class &&
+                            m.returnType == Boolean::class.javaPrimitiveType
                 } ?: return@apply
-                val addTabByNameMethod = dexHelper.findMethodUsingString(
-                    "tabName",
-                    declaringClass = clazzIndex,
-                ).asSequence().firstNotNullOfOrNull {
-                    dexHelper.decodeMethodIndex(it)
+                // x0#h():String = tabId（"6"=乐馆、"10"=直播），x0#f():Int = nativeLoadId。
+                val tabIdMethod = x0Class.declaredMethods.firstOrNull { m ->
+                    m.parameterTypes.isEmpty() && m.returnType == String::class.java && m.name == "h"
                 } ?: return@apply
-                val showMusicWorldMethod = dexHelper.findMethodUsingString(
-                    "showMusicWorldEntranceBtn",
-                    declaringClass = clazzIndex,
-                ).asSequence().firstNotNullOfOrNull {
-                    dexHelper.decodeMethodIndex(it)
+                val nativeIdMethod = x0Class.declaredMethods.firstOrNull { m ->
+                    m.parameterTypes.isEmpty() && m.returnType == Int::class.javaPrimitiveType && m.name == "f"
                 }
-                this.clazz = clazz { name = clazz.name }
-                addTabById = method {
-                    name = addTabByIdMethod.name
-                    paramTypes = addTabByIdMethod.paramTypes
+                clazz = clazz { name = homeFragmentClass.name }
+                addTab = method {
+                    name = addTabMethod.name
+                    paramTypes = addTabMethod.parameterTypes.map { it.name }.toTypedArray()
                 }
-                addTabByName = method {
-                    name = addTabByNameMethod.name
-                    paramTypes = addTabByNameMethod.paramTypes
-                }
-                showMusicWorldMethod?.let {
-                    showMusicWorld = method {
-                        name = it.name
-                        paramTypes = it.paramTypes
-                    }
-                }
+                tabId = method { name = tabIdMethod.name }
+                nativeIdMethod?.let { nativeId = method { name = it.name } }
+                Log.d("homeTopTab 解析完成：h5=${addTabMethod.name} tabId=${tabIdMethod.name} nativeId=${nativeIdMethod?.name ?: "-"}")
             }
             adManager = AdManager().apply {
                 val onStartIndex = dexHelper.encodeMethodIndex(

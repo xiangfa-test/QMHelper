@@ -163,15 +163,35 @@ object SettingsHook : BaseHook {
      */
     private fun installSettingsEntry() {
         val drawerPack = hookInfo.setting.drawerSettingPack
-        if (drawerPack.refresh.name.isEmpty()) {
-            Log.w("设置入口：没定位到抽屉刷新方法（refreshSettingList），本次不注入入口")
-            return
+        var hooked = 0
+        if (drawerPack.refresh.name.isNotEmpty()) {
+            drawerPack.hookAfterMethod({ refresh }) { param ->
+                runCatching { injectSettingsEntry(param.thisObject) }
+                    .onFailure { Log.e("设置入口：注入失败 ${it.message}"); Log.e(it) }
+            }
+            hooked++
+            Log.d("设置入口：已挂抽屉刷新注入点（${drawerPack.refresh.name}）")
         }
-        drawerPack.hookAfterMethod({ refresh }) { param ->
-            runCatching { injectSettingsEntry(param.thisObject) }
-                .onFailure { Log.e("设置入口：注入失败 ${it.message}"); Log.e(it) }
+        // 兜底：直接拦 BaseSettingPackage#getSettings()（所有设置页读列表都走它）。
+        // 有些入口路径（比如从搜索/推送深链进来）不经过抽屉包的刷新方法，
+        // 只有这条全量兜底能保证入口一定在。
+        val basePackClass = hookInfo.setting.baseSettingPack.clazz.name.ifEmpty {
+            "com.tencent.qqmusic.fragment.morefeatures.settings.base.BaseSettingPackage"
         }
-        Log.d("设置入口：已挂抽屉刷新注入点（${drawerPack.refresh.name}）")
+        basePackClass.from(classLoader)?.let { packClass ->
+            val getSettings = packClass.declaredMethods.firstOrNull {
+                it.parameterTypes.isEmpty() && List::class.java.isAssignableFrom(it.returnType)
+            }
+            if (getSettings != null) {
+                packClass.hookAfterMethod(getSettings.name) { param ->
+                    runCatching { injectSettingsEntry(param.thisObject) }
+                        .onFailure { Log.e("设置入口(兜底)：注入失败 ${it.message}"); Log.e(it) }
+                }
+                hooked++
+                Log.d("设置入口：已挂 getSettings 兜底注入点（${packClass.name}#${getSettings.name}）")
+            }
+        }
+        if (hooked == 0) Log.w("设置入口：两个注入点都没挂上，入口不生效")
     }
 
     private fun injectSettingsEntry(host: Any?) {

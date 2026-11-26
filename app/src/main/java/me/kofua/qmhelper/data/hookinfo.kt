@@ -26,6 +26,30 @@ class BaseFragment(var resume: Method = defMethod) : ClassInfo()
 
 class HomePageFragment(var initTabFragment: Method = defMethod) : ClassInfo()
 
+/**
+ * 首页顶部 tab（21.x 的结构）。
+ *
+ * 反编译核对（timeline/ui/HomePageFragment）后的真实链路：
+ *
+ * ```
+ * HomePageFragment.L5(uimode)      → t0.U(uimode): List<x0>     tab 配置来源
+ * HomePageFragment.Z6(list)        → j5(list) → h5(x0):Boolean  每个 tab 进 this.y 前都要过 h5
+ * x0.h():String                    → tabId（"6"=乐馆、"10"=直播、"5"=有声 …）
+ * x0.f():Int                       → nativeLoadId（老版本的 tab id）
+ * ```
+ *
+ * 所以过滤点选 **h5**：返回 false 宿主就不加这个 tab，比拦 UI 层的
+ * `MainDeskTitleTabViewV21.W2`（那条路在 21.x 是死代码，只有旧版头 r2.f0 调）稳得多。
+ */
+class HomeTopTab : ClassInfo() {
+    /** timeline HomePageFragment#h5(x0):Boolean —— 单个 tab 加入前的闸门。 */
+    var addTab: Method = defMethod
+    /** x0#h():String —— tabId。 */
+    var tabId: Method = defMethod
+    /** x0#f():Int —— nativeLoadId（老版本 tab id 语义）。 */
+    var nativeId: Method = defMethod
+}
+
 class MainDesktopHeader : ClassInfo() {
     var addTabById: Method = defMethod
     var addTabByName: Method = defMethod
@@ -212,6 +236,7 @@ class HookInfo : Serializable {
     var baseFragment: BaseFragment = BaseFragment()
     var splashAdapter: Class = defClazz
     var homePageFragment: HomePageFragment = HomePageFragment()
+    var homeTopTab: HomeTopTab = HomeTopTab()
     var mainDesktopHeader: MainDesktopHeader = MainDesktopHeader()
     var adManager: AdManager = AdManager()
     var setting: Setting = Setting()
