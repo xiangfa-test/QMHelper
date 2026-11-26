@@ -10,10 +10,15 @@ object HomePageHook : BaseHook {
 
     override fun hook() {
         if (sPrefs.getBoolean("hide_music_world", false)) {
-            hookInfo.mainDesktopHeader.showMusicWorld.name.ifNotEmpty {
-                hookInfo.mainDesktopHeader.replaceMethod({ showMusicWorld }) { null }
-            }
-            hookInfo.musicWorldPullEntrance.replaceMethod({ showButton }) { null }
+            // 21.x：音乐世界 = cocos 容器，唯一入口是 MusicWorldActivity.Companion.startGame(...)。
+            // 直接拦 startGame（含 $default 桥接），点了也进不去；老的 pullEntrance / mainDesktopHeader
+            // 在 21.x 都已不存在。
+            "com.tencent.qqmusic.cocos.lib.nolib.MusicWorldActivity\$Companion".from(classLoader)
+                ?.let { companion ->
+                    companion.hookBeforeMethod("startGame") { param -> param.result = null }
+                    companion.hookBeforeMethod("startGame\$default") { param -> param.result = null }
+                    Log.d("音乐世界：已拦 startGame 入口")
+                } ?: Log.w("音乐世界：MusicWorldActivity\$Companion 没找到（cocos 包被裁剪？）")
         }
         if (sPrefs.getBoolean("hide_vip_bubble", false)) {
             hookInfo.userInfoHolder.replaceMethod({ showBubble }) { null }
