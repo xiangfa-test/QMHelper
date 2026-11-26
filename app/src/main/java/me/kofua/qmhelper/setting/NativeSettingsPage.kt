@@ -157,15 +157,16 @@ object NativeSettingsPage {
             return null
         }
         val event = Proxy.newProxyInstance(classLoader, arrayOf(eventClass)) { _, _, _ -> null }
-        val instance = runCatchingOrNull { packClass.new(context, event, Bundle()) }
-        if (instance == null) {
-            // 构造失败把真实异常打出来（不吞栈）
-            runCatching { packClass.new(context, event, Bundle()) }
-                .onFailure { Log.e("原生设置页：Pack 构造失败"); Log.e(it) }
-            return null
-        }
-        runCatching { instance.invocationHandler(handler) }
+        val instance: Any? = try {
+            packClass.new(context, event, Bundle())
+        } catch (t: Throwable) {
+            Log.e("原生设置页：Pack 构造失败（context=${context.javaClass.name}）")
+            Log.e(t)
+            null
+        } ?: return null
+        runCatching { instance!!.invocationHandler(handler) }
             .onFailure { Log.e("原生设置页：Pack handler 挂载失败"); Log.e(it) }
+        return instance
         return instance
     }
 
