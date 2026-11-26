@@ -96,13 +96,12 @@ object NativeSettingsPage {
                     runCatching { inst.invocationHandler(fragHandler) }
                 }
             }
-            try {
-                activity.callMethod(addSecondFragment.name, fragClass, null)
-                Log.d("模块设置：已打开原生设置页（${fragClass.name}）")
-                true
-            } finally {
-                unhooks.forEach { h -> runCatching { h?.unhook() } }
-            }
+            // ⚠️ 不能在 callMethod 返回后立刻 unhook：addSecondFragment 是把 Fragment 事务
+            // post 到主线程队列，真正 new 出代理实例发生在返回之后。构造器钩子只对
+            // "类名匹配的实例"生效，留着不碍事（页面构造完就没用了，进程内常驻代价可忽略）。
+            activity.callMethod(addSecondFragment.name, fragClass, null)
+            Log.d("模块设置：已打开原生设置页（${fragClass.name}）")
+            true
         }.onFailure {
             Log.e("模块设置：原生页打开失败")
             Log.e(it)
@@ -150,11 +149,18 @@ object NativeSettingsPage {
         context: Context,
         handler: java.lang.reflect.InvocationHandler,
     ): Any? {
-        val eventClass = EVENT_CLASS.from(classLoader) ?: return null
+        val eventClass = EVENT_CLASS.from(classLoader) ?: run {
+            Log.e("原生设置页：SettingEvent 接口加载失败")
+            return null
+        }
         val event = Proxy.newProxyInstance(classLoader, arrayOf(eventClass)) { _, _, _ -> null }
         val instance = runCatchingOrNull { packClass.new(context, event, Bundle()) }
-            ?: runCatchingOrNull { packClass.new(context, event, Bundle()) }
-            ?: return null
+        if (instance == null) {
+            // 构造失败把真实异常打出来（不吞栈）
+            runCatching { packClass.new(context, event, Bundle()) }
+                .onFailure { Log.e("原生设置页：Pack 构造失败"); Log.e(it) }
+            return null
+        }
         runCatching { instance.invocationHandler(handler) }
             .onFailure { Log.e("原生设置页：Pack handler 挂载失败"); Log.e(it) }
         return instance
