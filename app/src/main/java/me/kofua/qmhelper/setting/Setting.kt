@@ -168,4 +168,20 @@ class Setting {
         }
         return fallback
     }
+
+    /**
+     * 同 [toHostSetting]，但显式传 context（原生设置页构建条目时用，
+     * 不依赖 currentContext 已就绪）。
+     */
+    fun toHostSetting(context: android.content.Context): Any? = runCatchingOrNull {
+        val settingClass = qmPackage.settingClass ?: return null
+        val builder = settingClass
+            .callStaticMethodOrNull(hookInfo.setting.with, context) ?: return null
+        val hostType = hostTypeValue(settingClass, type.key) ?: return null
+        builder.callMethod("type", hostType)
+        builder.callMethod("title", title ?: "")
+        rightDesc?.let { runCatching { builder.callMethod("subRightDesc", it) } }
+        clickListener?.let { runCatching { builder.callMethod("click", it) } }
+        builder.callMethod("build")
+    }
 }

@@ -237,6 +237,24 @@ object SettingsHook : BaseHook {
             BannerTips.error(R.string.jump_failed)
             return
         }
+        // 首选：Q音 原生设置页（BaseRecyclerSettingFragment 动态子类）。
+        // 21.x 的 addSecondFragment(Class, Bundle[, Z]) 挂在 BaseFragmentActivity 上，
+        // 和「简洁模式」跳转走的是同一条通道 —— 页面就是宿主原生样式。
+        val nativePage = me.kofua.qmhelper.setting.NativeSettingsPage.fragmentClass(activity)
+        if (nativePage != null) {
+            runCatching {
+                activity.callMethod(
+                    hookInfo.appStarterActivity.addSecondFragment,
+                    nativePage, null
+                )
+                Log.d("模块设置：已打开原生设置页（${nativePage.name}）")
+                return
+            }.onFailure {
+                Log.e("模块设置：原生页打开失败，退回 Dialog")
+                Log.e(it)
+            }
+        }
+        // 兜底：自绘 Dialog（宿主框架类缺失时用）。
         if (!ModuleSettingsDialog.show(activity)) {
             BannerTips.error(R.string.jump_failed)
         }

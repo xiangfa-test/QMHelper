@@ -81,10 +81,19 @@ class QMPackage private constructor() {
                 val info = hookInfoFile.inputStream().use {
                     runCatchingOrNull { ObjectInputStream(it).readAny<HookInfo>() } ?: HookInfo()
                 }
-                if (info.lastUpdateTime >= max(lastUpdateTime, lastModuleUpdateTime)
-                    && getVersionCode(hostPackageName) == info.clientVersionCode
-                    && BuildConfig.VERSION_CODE == info.moduleVersionCode
-                    && BuildConfig.VERSION_NAME == info.moduleVersionName
+                // 结构完整性校验：升级模块（新增 HookInfo 字段）后，旧缓存反序列化回来
+                // 新字段全是默认值 —— 必须作废重建，否则新功能"看起来没生效"。
+                // 校验 1.2.0 新增的 nativeUi；宿主没有 BaseRecyclerSettingFragment 时视为不适用。
+                val nativeUiClassExists =
+                    "com.tencent.qqmusic.fragment.debug.BaseRecyclerSettingFragment"
+                        .from(currentContext.classLoader) != null
+                val cacheStructurallyValid =
+                    !nativeUiClassExists || info.setting.nativeUi.fragmentClass.isNotEmpty()
+                if (cacheStructurallyValid &&
+                    info.lastUpdateTime >= max(lastUpdateTime, lastModuleUpdateTime) &&
+                    getVersionCode(hostPackageName) == info.clientVersionCode &&
+                    BuildConfig.VERSION_CODE == info.moduleVersionCode &&
+                    BuildConfig.VERSION_NAME == info.moduleVersionName
                 ) {
                     val end = System.currentTimeMillis()
                     Log.d("Read hook info from cache success, took ${end - start} ms")
@@ -281,6 +290,29 @@ class QMPackage private constructor() {
                             }
                         }
                     }
+                // 原生设置页（模块自己的页面，长得和 Q音 设置一模一样）：
+                // 21.x 的框架还在 —— BaseRecyclerSettingFragment（title/settingPackage 抽象方法）
+                // + BaseSettingPackage（createSettingProvider）。类名/方法名都没混淆，直接按名取。
+                val baseRecyclerFragmentClass =
+                    "com.tencent.qqmusic.fragment.debug.BaseRecyclerSettingFragment".from(classLoader)
+                val baseSettingPackageClass =
+                    "com.tencent.qqmusic.fragment.morefeatures.settings.base.BaseSettingPackage".from(classLoader)
+                if (baseRecyclerFragmentClass != null && baseSettingPackageClass != null) {
+                    nativeUi = NativeSettingUi().apply {
+                        fragmentClass = baseRecyclerFragmentClass.name
+                        packageClass = baseSettingPackageClass.name
+                        // 抽象方法名未混淆，核对过 descriptor：
+                        //   title():String / settingPackage():BaseSettingPackage / createSettingProvider():CopyOnWriteArrayList
+                        titleMethod = "title"
+                        settingPackageMethod = "settingPackage"
+                        createSettingProviderMethod = baseSettingPackageClass.methods
+                            .firstOrNull { m -> CopyOnWriteArrayList::class.java.isAssignableFrom(m.returnType) }
+                            ?.name ?: "createSettingProvider"
+                    }
+                    Log.d("原生设置页：BaseRecyclerSettingFragment / BaseSettingPackage 就绪")
+                } else {
+                    Log.d("原生设置页：宿主框架类缺失，入口将退回自绘 Dialog")
+                }
             }
             personalEntryView = PersonalEntryView().apply {
                 val entryViewClass =

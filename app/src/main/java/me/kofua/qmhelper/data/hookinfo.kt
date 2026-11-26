@@ -67,6 +67,7 @@ class Setting : ClassInfo() {
     var builder: SettingBuilder = SettingBuilder()
     var switchListener: SwitchListener = SwitchListener()
     var baseSettingFragment: BaseSettingFragment = BaseSettingFragment()
+    var nativeUi: NativeSettingUi = NativeSettingUi()
     var baseSettingPack: BaseSettingPack = BaseSettingPack()
     var baseSettingProvider: BaseSettingProvider = BaseSettingProvider()
     var drawerSettingPack: DrawerSettingPack = DrawerSettingPack()
@@ -92,6 +93,19 @@ class BaseSettingFragment : ClassInfo() {
     var title: Method = defMethod
 }
 
+/**
+ * 21.x 原生设置页动态子类所需的定位结果（旧 BaseSettingFragment 三件套的替身）。
+ *
+ * fragmentClass/packageClass 存的是**类名字符串**（要被子类化的宿主类），
+ * 由 proxy.kt 运行时用 from(classLoader) 加载；方法名 21.x 未混淆，写死即可。
+ */
+class NativeSettingUi : ClassInfo() {
+    var fragmentClass: String = ""
+    var settingPackageMethod: String = "settingPackage"
+    var titleMethod: String = "title"
+    var packageClass: String = ""
+    var createSettingProviderMethod: String = "createSettingProvider"
+}
 class BaseSettingPack : ClassInfo() {
     var createSettingProvider: Method = defMethod
     var host: Field = defField
