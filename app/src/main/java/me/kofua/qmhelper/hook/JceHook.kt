@@ -11,9 +11,10 @@ object JceHook : BaseHook {
         val unlockFont = sPrefs.getBoolean("unlock_font", false)
 
         hookInfo.jceRespConverter.hookAfterMethod({ parse }) { param ->
-            val type = (param.args[1] as Class<*>).name
+            // 21.x 里同一个锚点字符串还会命中别的类，参数不一定是 Class —— 类型对不上就直接放行。
+            val type = (param.args.getOrNull(1) as? Class<*>)?.name ?: return@hookAfterMethod
             if (BuildConfig.DEBUG)
-                Log.d("net.jce, type: $type, json: ${param.result?.toJson()}")
+                runCatching { Log.d("net.jce, type: $type, json: ${param.result?.toJson()}") }
             if (type == "com.tencent.jce.playerStyle.PlayerStyleRsp" && hidden && unlockTheme) {
                 param.result?.run {
                     getObjectField("alert")?.setIntField("revertTheme", 0)

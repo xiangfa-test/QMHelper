@@ -126,4 +126,5 @@
     <string name="prefs_unlock_lyric_kinetic_title">解锁所有歌词动效</string>
     <string name="prefs_hide_song_list_guide_title">隐藏“新建/导入歌单”引导</string>
     <string name="prefs_hide_song_list_guide_summary">通过强制指定AB实验策略隐藏我的页面自建歌单“新建/导入歌单”引导项，可能失效</string>
+    <string name="module_entry_summary">模块设置（去广告 / 净化界面 / 复制歌词等）</string>
 </resources>

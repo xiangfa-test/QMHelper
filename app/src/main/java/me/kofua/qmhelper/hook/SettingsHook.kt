@@ -1,11 +1,10 @@
 package me.kofua.qmhelper.hook
 
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
-import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.RelativeLayout
 import android.widget.TextView
 import kotlinx.coroutines.Dispatchers
@@ -16,12 +15,11 @@ import me.kofua.qmhelper.hookInfo
 import me.kofua.qmhelper.qmPackage
 import me.kofua.qmhelper.setting.Setting
 import me.kofua.qmhelper.setting.SettingPack
+import me.kofua.qmhelper.ui.ModuleSettingsDialog
 import me.kofua.qmhelper.utils.*
-import java.lang.reflect.InvocationHandler
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.CopyOnWriteArrayList
 
 object SettingsHook : BaseHook {
     private val purifyRedDots by lazy { sPrefs.getBoolean("purify_red_dots", false) }
@@ -29,6 +27,8 @@ object SettingsHook : BaseHook {
         sPrefs.getStringSet("purify_more_items", null) ?: setOf()
     }
     private val settingPack = SettingPack()
+
+    /** 面板里要用的开关，缓存一下避免每次渲染都读盘。 */
     private val settingViewTextFields by lazy {
         hookInfo.settingView.clazz.from(classLoader)
             ?.declaredFields?.filter { it.type == TextView::class.java }
@@ -58,12 +58,15 @@ object SettingsHook : BaseHook {
                         { sPrefs.edit { putBoolean("ui_mode_hint", true) } },
                     ) {
                         sPrefs.edit { putBoolean("ui_mode_hint", true) }
-                        hookInfo.modeFragment.from(classLoader)?.let {
-                            activity.callMethod(
-                                hookInfo.appStarterActivity.addSecondFragment,
-                                it, null
-                            )
-                        } ?: BannerTips.error(R.string.jump_failed)
+                        val modeFragmentClass = hookInfo.modeFragment.from(classLoader)
+                        if (modeFragmentClass == null) {
+                            BannerTips.error(R.string.jump_failed)
+                            return@showMessageDialog
+                        }
+                        activity.callMethod(
+                            hookInfo.appStarterActivity.addSecondFragment,
+                            modeFragmentClass, null
+                        )
                     }
                 }
             }
@@ -93,13 +96,14 @@ object SettingsHook : BaseHook {
         }
         hookInfo.uiModeManager.replaceMethod({ isThemeForbid }) { false }
         hookInfo.settingView.hookAfterMethod({ setSetting }) { param ->
-            val viewGroup = param.thisObject as ViewGroup
-            val setting = param.args[0] ?: return@hookAfterMethod
+            val viewGroup = param.thisObject as? ViewGroup ?: return@hookAfterMethod
             settingViewTextFields.forEach {
-                viewGroup.getObjectFieldAs<TextView?>(it)?.isSingleLine = false
+                viewGroup.getObjectFieldOrNullAs<TextView>(it)?.isSingleLine = false
             }
             val typeField = hookInfo.setting.type
-            if (setting.getIntField(typeField) != Setting.Type.DIVIDER.key) {
+            if (typeField.name.isEmpty()) return@hookAfterMethod
+            runCatchingOrNull {
+                if (viewGroup.getIntField(typeField) == Setting.Type.DIVIDER.key) return@hookAfterMethod
                 (viewGroup.layoutParams as? RelativeLayout.LayoutParams)?.apply {
                     height = RelativeLayout.LayoutParams.WRAP_CONTENT
                 }?.let { viewGroup.layoutParams = it }
@@ -107,107 +111,115 @@ object SettingsHook : BaseHook {
                     viewGroup.setPadding(0, 6.dp, 0, 6.dp)
             }
         }
-        hookInfo.settingView.hookBeforeMethod({ setLastClickTime }) { it.args[1] = 0L }
-        @Suppress("UNCHECKED_CAST")
-        hookInfo.setting.drawerSettingPack.hookAfterMethod({ createSettingProvider }) { param ->
-            val settingProviders = param.result as CopyOnWriteArrayList<Any?>
-            val hostField = hookInfo.setting.baseSettingPack.host
-            val fragment = param.thisObject.getObjectField(hostField)
-                ?: return@hookAfterMethod
-            val getSetting = hookInfo.setting.baseSettingProvider.getSetting
-            val rightDescField = hookInfo.setting.rightDesc
-            val redDotListenerField = hookInfo.setting.redDotListener
-            settingProviders.map { it?.callMethod(getSetting) }.forEach { s ->
-                if (purifyRedDots) {
-                    s?.getObjectField(rightDescField)?.takeIf {
-                        it != "未开启"
-                    }?.run { s.setObjectField(rightDescField, null) }
-                    s.setObjectField(redDotListenerField, null)
-                }
-            }
-            val titleField = hookInfo.setting.title
-            for (i in settingProviders.size - 1 downTo 0) {
-                settingProviders[i]?.callMethod(getSetting)
-                    ?.getObjectFieldAs<String>(titleField)?.takeIf {
-                        purifyMoreItems.contains(it)
-                    }?.run { settingProviders.removeAt(i) }
-            }
-            if (settingProviders.last()?.callMethod(getSetting)
-                    ?.getObjectField(titleField) == Setting.TITLE_DIVIDER
-            ) settingProviders.removeAt(settingProviders.lastIndex)
+        if (hookInfo.settingView.setLastClickTime.name.isNotEmpty())
+            hookInfo.settingView.hookBeforeMethod({ setLastClickTime }) { it.args[1] = 0L }
 
-            val moduleSetting = Setting.button(R.string.app_name) {
-                onQMHelperSettingClicked(it.context)
-            }
-            settingProviders.add(1, settingProvider(fragment, moduleSetting))
-        }
-        if (purifyMoreItems.contains("创作者中心"))
+        installSettingsEntry()
+
+        if (purifyMoreItems.contains("创作者中心") && hookInfo.setting.drawerSettingPack.initKolEnter.name.isNotEmpty())
             hookInfo.setting.drawerSettingPack.replaceMethod({ initKolEnter }) { null }
 
         if (!purifyRedDots) return
-        hookInfo.personalEntryView.hookAfterMethod({ update }) { param ->
-            param.thisObject.getObjectFieldAs<TextView>(hookInfo.personalEntryView.rightDescView)
-                .run { text = "" }
-            param.thisObject.getObjectFieldAs<View>(hookInfo.personalEntryView.redDotView)
-                .run { visibility = View.GONE }
-        }
-        hookInfo.settingFragment.hookBeforeMethod({ resume }) { param ->
-            param.thisObject.getObjectFieldAs<List<*>>(hookInfo.settingFragment.settingList)
-                .forEach {
-                    it?.setObjectField(hookInfo.setting.redDotListener, null)
+        if (hookInfo.personalEntryView.update.name.isNotEmpty()) {
+            hookInfo.personalEntryView.hookAfterMethod({ update }) { param ->
+                runCatchingOrNull {
+                    param.thisObject.getObjectFieldAs<TextView?>(hookInfo.personalEntryView.rightDescView)
+                        ?.run { text = "" }
+                    param.thisObject.getObjectFieldAs<View?>(hookInfo.personalEntryView.redDotView)
+                        ?.run { visibility = View.GONE }
                 }
-        }
-    }
-
-    private fun settingProvider(fragment: Any, setting: Any?): Any? {
-        val baseSettingProviderClass = qmPackage.baseSettingProviderClass ?: return null
-        val create = hookInfo.setting.baseSettingProvider.create.name
-        val handler = InvocationHandler { _, _, _ -> setting }
-        val settingProviderClass = baseSettingProviderClass.proxy(create)
-        val unhook = baseSettingProviderClass.constructors.first().hookBefore {
-            if (it.thisObject.javaClass.name == settingProviderClass.name)
-                it.thisObject.invocationHandler(handler)
-        }
-        return settingProviderClass.new(currentContext, fragment).also { unhook?.unhook() }
-    }
-
-    private fun onQMHelperSettingClicked(context: Context) {
-        val baseSettingFragmentClass = qmPackage.baseSettingFragmentClass ?: return
-        val baseSettingPackClass = qmPackage.baseSettingPackClass ?: return
-        val settingPackage = hookInfo.setting.baseSettingFragment.settingPackage.name
-        val title = hookInfo.setting.baseSettingFragment.title.name
-        val createSettingProvider = hookInfo.setting.baseSettingPack.createSettingProvider.name
-        val handler = InvocationHandler { fp, fm, fArgs ->
-            if (fm.name == settingPackage) {
-                val packSettingHandler = InvocationHandler { _, _, _ ->
-                    val settingProviders = settingPack.getSettings()
-                        .map { settingProvider(fp, it) }
-                    CopyOnWriteArrayList<Any?>(settingProviders)
-                }
-                val moduleSettingPackClass = baseSettingPackClass.proxy(createSettingProvider)
-                val unhook = baseSettingPackClass.constructors.first().hookBefore {
-                    if (it.thisObject.javaClass.name == moduleSettingPackClass.name)
-                        it.thisObject.invocationHandler(packSettingHandler)
-                }
-                moduleSettingPackClass.new(currentContext, fp, Bundle()).also { unhook?.unhook() }
-            } else if (fm.name == title) {
-                string(R.string.app_name)
-            } else if (fArgs.isNullOrEmpty()) {
-                fp.callSuper(fm)
-            } else {
-                fp.callSuper(fm, fArgs)
             }
         }
-        val moduleSettingFragmentClass = baseSettingFragmentClass.proxy(settingPackage, title)
-        val unhook = qmPackage.baseFragmentClass?.hookBeforeConstructor {
-            if (it.thisObject.javaClass.name == moduleSettingFragmentClass.name)
-                it.thisObject.invocationHandler(handler)
+        if (hookInfo.settingFragment.settingList.name.isNotEmpty()) {
+            hookInfo.settingFragment.hookBeforeMethod({ resume }) { param ->
+                runCatchingOrNull {
+                    param.thisObject.getObjectFieldAs<List<*>>(hookInfo.settingFragment.settingList)
+                        .forEach {
+                            it?.setObjectField(hookInfo.setting.redDotListener, null)
+                        }
+                }
+            }
         }
-        context.callMethod(
-            hookInfo.appStarterActivity.addSecondFragment,
-            moduleSettingFragmentClass, null
-        )
-        unhook?.unhook()
+    }
+
+    /**
+     * 往宿主「我的 → 更多设置」列表里插一条「Q音助手」入口。
+     *
+     * ## 为什么挂"抽屉包的刷新方法"
+     *
+     * 21.0.5.3 的设置页仍然是 Provider 模式：`BaseSettingPackage#settings`（List）是所有
+     * 设置页读的同一份列表，各包（`settings.packages.b/c/d`）负责把 provider 的条目汇总进去。
+     * 老项目（QQMusicPlus）的做法是挂 `packages.b` 的刷新方法，在它把列表拼好之后补一条 ——
+     * 这比"挂 getSettings() 后在宿主遍历时改列表"更安全，也不会在多个页面重复出现。
+     *
+     * 定位用的字符串 `refreshSettingList: FORCE REFRESH` 在 21.0.5.3 上仍然存在
+     * （`settings.packages.b#c()`），随版本变化的风险比类名小。
+     *
+     * ## 为什么不用宿主的 SettingProvider
+     *
+     * 宿主 21.x 的 `SettingProvider` 构造签名变成了 `(Context, SettingEvent)`，
+     * 而 SettingEvent 只有包自己有；我们没法造。直接把 `Setting` 塞进 `settings` 列表即可，
+     * 宿主渲染时只看列表里的 Setting 对象。
+     */
+    private fun installSettingsEntry() {
+        val drawerPack = hookInfo.setting.drawerSettingPack
+        if (drawerPack.refresh.name.isEmpty()) {
+            Log.w("设置入口：没定位到抽屉刷新方法（refreshSettingList），本次不注入入口")
+            return
+        }
+        drawerPack.hookAfterMethod({ refresh }) { param ->
+            runCatching { injectSettingsEntry(param.thisObject) }
+                .onFailure { Log.e("设置入口：注入失败 ${it.message}"); Log.e(it) }
+        }
+        Log.d("设置入口：已挂抽屉刷新注入点（${drawerPack.refresh.name}）")
+    }
+
+    private fun injectSettingsEntry(host: Any?) {
+        host ?: return
+        val settingsField = host.javaClass.findFieldOrNull("settings") ?: run {
+            Log.d("设置入口：宿主包里没有 settings 字段")
+            return
+        }
+        @Suppress("UNCHECKED_CAST")
+        val settings = settingsField.get(host) as? MutableList<Any?> ?: return
+
+        val entryTitle = string(R.string.app_name)
+        val exists = settings.any { entry ->
+            entry?.getObjectFieldOrNullAs<String>("titleText") == entryTitle
+        }
+        if (exists) return
+
+        val entry = Setting.button(
+            title = entryTitle,
+            summary = string(R.string.module_entry_summary),
+            rightDesc = null,
+        ) { openModuleSettings() }.toHostSetting() ?: run {
+            Log.w("设置入口：构造宿主 Setting 失败（builder 方法不可用）")
+            return
+        }
+
+        // 插在第一条之后：宿主列表第一项通常是「音乐访问权限」之类的头部条目。
+        val index = if (settings.isEmpty()) 0 else 1.coerceAtMost(settings.size)
+        settings.add(index, entry)
+        Log.i("设置入口：已插入「$entryTitle」（当前 ${settings.size} 条）")
+
+        // 列表改完要主动让宿主重建，否则界面还是旧的。
+        handler.post {
+            runCatching { host.callMethod("notifyEvent", 0) }
+                .onFailure { Log.d("设置入口：触发刷新失败 ${it.message}") }
+        }
+    }
+
+    private fun openModuleSettings() {
+        val activity = HookEnv.currentActivity
+            ?: (currentApplication() as? Activity)
+        if (activity == null) {
+            BannerTips.error(R.string.jump_failed)
+            return
+        }
+        if (!ModuleSettingsDialog.show(activity)) {
+            BannerTips.error(R.string.jump_failed)
+        }
     }
 
     private fun dailySignIn(check: Boolean = true) {

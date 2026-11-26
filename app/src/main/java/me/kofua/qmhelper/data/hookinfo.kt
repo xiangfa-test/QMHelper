@@ -81,6 +81,8 @@ class BaseSettingProvider : ClassInfo() {
 class DrawerSettingPack : ClassInfo() {
     var createSettingProvider: Method = defMethod
     var initKolEnter: Method = defMethod
+    /** 21.x：抽屉设置包的刷新方法（方法体里有 `refreshSettingList: FORCE REFRESH`），入口靠它补。 */
+    var refresh: Method = defMethod
 }
 
 class PersonalEntryView : ClassInfo() {

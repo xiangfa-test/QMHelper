@@ -242,130 +242,69 @@ class QMPackage private constructor() {
             ).firstOrNull()?.let { dexHelper.decodeMethodIndex(it) }?.declaringClass
             val settingClass = settingBuilderClass?.declaringClass
             setting = Setting().apply {
-                settingBuilderClass ?: return@apply
-                settingClass ?: return@apply
+                // 21.0.5.3 的设置框架（非混淆包名，全部可直读）：
+                //   settings.base.Setting            条目模型（type/titleText/subRightDesc/…）
+                //   settings.base.Setting$Builder    构造器（type/title/subRightDesc/click/build）
+                //   settings.base.SettingPackage     包接口（createSettingProvider）
+                //   settings.base.BaseSettingPackage 包实现（settings:List / settingProviders:List / notifyEvent）
+                //   settings.packages.b              抽屉(更多设置)包，刷新方法里有 refreshSettingList: FORCE REFRESH
+                //
+                // 旧版锚点（DebugSettingFragment / PersonalCenterEntryView / BaseSettingFragment）全部消失，
+                // 所以这里不再依赖它们：只解 Setting / Builder / 抽屉包刷新方法，够入口注入 + 面板渲染用。
+                val settingBuilderClass = dexHelper
+                    .findMethodUsingString("onSwitchLister can't be null while type is TYPE_SWITCH")
+                    .firstOrNull()?.declaringClass
+                    ?: "com.tencent.qqmusic.fragment.morefeatures.settings.base.Setting\$Builder".from(classLoader)
+                    ?: return@apply
+                val settingClass = settingBuilderClass.declaringClass ?: return@apply
                 val withMethod = settingClass.declaredMethods.find {
                     it.isStatic && it.returnType == settingBuilderClass
                 } ?: return@apply
-                val buildMethod = settingBuilderClass.declaredMethods.find {
-                    it.returnType == settingClass
-                } ?: return@apply
                 val fields = settingClass.declaredFields
-                val builderFields = settingBuilderClass.declaredFields
-                val switchListenerField = builderFields.find { f ->
-                    f.type.let { it.isInterface && it.methods.size == 2 }
-                } ?: return@apply
-                val clickListenerField = builderFields.find { f ->
-                    f.type == View.OnClickListener::class.java
-                } ?: return@apply
-                val switchListenerClass = switchListenerField.type
-                val isSwitchOnMethod = switchListenerClass.methods.find {
-                    it.returnType == Boolean::class.javaPrimitiveType
-                } ?: return@apply
-                val onSwitchStatusChangeMethod = switchListenerClass.methods.find { m ->
-                    m.parameterTypes.contentEquals(arrayOf(Boolean::class.javaPrimitiveType))
-                } ?: return@apply
-                val redDotListenerField = fields.find { f ->
-                    f.type.let { t ->
-                        t.isInterface && t.methods.size == 1 && t.methods[0].let {
-                            it.parameterTypes.isEmpty() && it.returnType == Boolean::class.javaPrimitiveType
-                        }
-                    }
-                } ?: return@apply
-                val startPos = fields.indexOfFirst { it.type == Int::class.javaPrimitiveType }
-                    .takeIf { it > -1 } ?: return@apply
+                fun namedField(vararg names: String): me.kofua.qmhelper.data.Field =
+                    names.firstNotNullOfOrNull { n -> fields.find { it.name == n } }
+                        ?.let { f -> field { name = f.name } } ?: defField
+
                 clazz = clazz { name = settingClass.name }
                 with = method { name = withMethod.name }
-                type = field { name = fields[startPos].name }
-                title = field { name = fields[startPos + 1].name }
-                if (clientVersionCode >= 4958/*13.0.0.8*/) {
-                    rightDesc = field { name = fields[startPos + 2].name }
-                } else {
-                    rightDesc = field { name = fields[startPos + 3].name }
-                }
-                redDotListener = field { name = redDotListenerField.name }
+                type = namedField("type")
+                title = namedField("titleText", "title")
+                // 21.x 右侧灰字叫 subRightDesc（旧版是 rightDesc）
+                rightDesc = namedField("subRightDesc", "rightDesc")
+                redDotListener = namedField("redDotListener")
+
                 builder = SettingBuilder().apply {
                     clazz = clazz { name = settingBuilderClass.name }
-                    build = method { name = buildMethod.name }
-                    type = field { name = builderFields[0].name }
-                    title = field { name = builderFields[1].name }
-                    rightDesc = field { name = builderFields[2].name }
-                    if (clientVersionCode >= 4958/*13.0.0.8*/) {
-                        summary = field { name = builderFields[4].name }
-                    } else {
-                        summary = field { name = builderFields[5].name }
-                    }
-                    switchListener = field { name = switchListenerField.name }
-                    clickListener = field { name = clickListenerField.name }
+                    build = method { name = settingBuilderClass.declaredMethods
+                        .firstOrNull { it.returnType == settingClass }?.name ?: "build" }
                 }
+                // 宿主的开关回调接口（SettingView$d）：只有两个方法，名字未混淆
                 switchListener = SwitchListener().apply {
-                    clazz = clazz { name = switchListenerClass.name }
-                    isSwitchOn = method { name = isSwitchOnMethod.name }
-                    onSwitchStatusChange = method { name = onSwitchStatusChangeMethod.name }
+                    clazz = clazz {
+                        name = "com.tencent.qqmusic.fragment.morefeatures.settings.view.SettingView\$d"
+                            .from(classLoader)?.name
+                            ?: "com.tencent.qqmusic.fragment.morefeatures.settings.view.SettingView\$d"
+                    }
+                    isSwitchOn = method { name = "isSwitchOn" }
+                    onSwitchStatusChange = method { name = "onSwitchStatusChange" }
                 }
 
-                val debugSettingFragmentClass =
-                    "com.tencent.qqmusic.fragment.debug.DebugSettingFragment"
-                        .from(classLoader) ?: arrayOf(
-                        "DebugMode",
-                        "\u4f53\u9a8c\u529f\u80fd\u5f00\u5173"
-                    ).firstNotNullOfOrNull { str ->
-                        dexHelper.findMethodUsingString(str).firstOrNull()
-                            ?.let { dexHelper.decodeMethodIndex(it) }?.declaringClass
-                    } ?: return@apply
-                val baseSettingFragmentClass =
-                    debugSettingFragmentClass.superclass ?: return@apply
-                val settingPackMethod = debugSettingFragmentClass.declaredMethods.find { m ->
-                    m.returnType.let { it != String::class.java && !it.isPrimitive } && m.parameterTypes.isEmpty()
-                } ?: return@apply
-                val titleMethod = debugSettingFragmentClass.declaredMethods.find {
-                    it.returnType == String::class.java && it.parameterTypes.isEmpty()
-                } ?: return@apply
-                val baseSettingPackClass = settingPackMethod.returnType
-                val createSettingProviderMethod = baseSettingPackClass.methods.find {
-                    it.returnType == CopyOnWriteArrayList::class.java && it.isAbstract
-                } ?: return@apply
-                val hostField = baseSettingPackClass.declaredFields.find {
-                    it.type.isInterface && baseSettingPackClass.interfaces.contains(it.type)
-                } ?: return@apply
-                val baseSettingProviderClass =
-                    dexHelper.findMethodUsingString("setting is null").firstOrNull()
-                        ?.let { dexHelper.decodeMethodIndex(it) }?.declaringClass ?: return@apply
-                val createMethod = baseSettingProviderClass.methods.find {
-                    it.returnType == settingClass && it.isAbstract
-                } ?: return@apply
-                val getSettingMethod = baseSettingProviderClass.declaredMethods.find {
-                    it.returnType == settingClass
-                } ?: return@apply
-                val initKolEnterMethod = dexHelper.findMethodUsingString(
-                    "initMusicAccoutEnter: start"
-                ).firstOrNull()?.let { dexHelper.decodeMethodIndex(it) } ?: return@apply
-                baseSettingFragment = BaseSettingFragment().apply {
-                    clazz = clazz { name = baseSettingFragmentClass.name }
-                    settingPackage = method { name = settingPackMethod.name }
-                    title = method { name = titleMethod.name }
-                }
-                baseSettingPack = BaseSettingPack().apply {
-                    clazz = clazz { name = baseSettingPackClass.name }
-                    createSettingProvider = method {
-                        name = createSettingProviderMethod.name
-                        paramTypes = createSettingProviderMethod.paramTypes
+                // 抽屉设置包（我的 → 更多设置）：入口注入点在它的刷新方法上。
+                dexHelper.findMethodUsingString("refreshSettingList: FORCE REFRESH").firstOrNull()
+                    ?.let { refreshMethod ->
+                        drawerSettingPack = DrawerSettingPack().apply {
+                            clazz = clazz { name = refreshMethod.declaringClass.name }
+                            refresh = method {
+                                name = refreshMethod.name
+                                paramTypes = refreshMethod.parameterTypes.map { it.name }.toTypedArray()
+                            }
+                            createSettingProvider = method {
+                                name = refreshMethod.declaringClass.methods
+                                    .firstOrNull { m -> m.returnType == CopyOnWriteArrayList::class.java }?.name
+                                    ?: "createSettingProvider"
+                            }
+                        }
                     }
-                    host = field { name = hostField.name }
-                }
-                baseSettingProvider = BaseSettingProvider().apply {
-                    clazz = clazz { name = baseSettingProviderClass.name }
-                    create = method { name = createMethod.name }
-                    getSetting = method { name = getSettingMethod.name }
-                }
-                drawerSettingPack = DrawerSettingPack().apply {
-                    clazz = clazz { name = initKolEnterMethod.declaringClass.name }
-                    createSettingProvider = baseSettingPack.createSettingProvider
-                    initKolEnter = method {
-                        name = initKolEnterMethod.name
-                        paramTypes = initKolEnterMethod.paramTypes
-                    }
-                }
             }
             personalEntryView = PersonalEntryView().apply {
                 val entryViewClass =
@@ -534,11 +473,20 @@ class QMPackage private constructor() {
                 showMessageDialog = method { name = showMessageDialogMethod.name }
             }
             modeFragment = clazz {
-                name = "com.tencent.qqmusic.fragment.morefeatures.ModeSettingFragment"
-                    .from(classLoader)?.name ?: dexHelper.findMethodUsingString(
-                    "runningModeSetting"
-                ).firstOrNull()?.let { dexHelper.decodeMethodIndex(it) }
-                    ?.declaringClass?.name ?: return@clazz
+                // 「简洁模式 / 运行模式」设置页。
+                // 21.x 换了包名与类名：morefeatures.mode.ModeSettingFragmentNew（旧版是
+                // morefeatures.ModeSettingFragment，锚点字符串 runningModeSetting 也已消失）。
+                val candidates = arrayOf(
+                    "com.tencent.qqmusic.fragment.morefeatures.mode.ModeSettingFragmentNew",
+                    "com.tencent.qqmusic.fragment.morefeatures.ModeSettingFragment",
+                )
+                Log.d("modeFragment 候选：" + candidates.joinToString { "$it=" + (it.from(classLoader)?.name ?: "-") })
+                name = candidates.firstNotNullOfOrNull { it.from(classLoader)?.name }
+                    ?: dexHelper.findMethodUsingString("runningModeSetting").firstOrNull()
+                        ?.let { dexHelper.decodeMethodIndex(it) }?.declaringClass?.name
+                    ?: dexHelper.findMethodUsingString("ModeSettingFragmentNew").firstOrNull()
+                        ?.let { dexHelper.decodeMethodIndex(it) }?.declaringClass?.name
+                    ?: return@clazz
             }
             authAgent = AuthAgent().apply {
                 val startActionActivityMethod = dexHelper.findMethodUsingString(
@@ -831,10 +779,14 @@ class QMPackage private constructor() {
                 }.let { item = it }
             }
             jceRespConverter = JceResponseConverter().apply {
+                // 同一个字符串在 21.x 里有两处引用：真正的 JCE 响应转换器（参数是 Object, Class）
+                // 和 safefeedback 里一个无关的强转日志。这里按参数签名挑掉后者（否则 hook 会抛 ClassCastException）。
                 val parseMethod = dexHelper.findMethodUsingString(
-                    "JceResponseItemConverter"
-                ).firstOrNull()?.let { dexHelper.decodeMethodIndex(it) } ?: return@apply
-                clazz = clazz { name = parseMethod.declaringClass.name }
+                    "JceResponseItemConverter",
+                    findFirst = false,
+                ).firstOrNull { m ->
+                    m.parameterTypes.size == 2 && m.parameterTypes[1] == Class::class.java
+                } ?: return@apply
                 parse = method {
                     name = parseMethod.name
                     paramTypes = parseMethod.paramTypes

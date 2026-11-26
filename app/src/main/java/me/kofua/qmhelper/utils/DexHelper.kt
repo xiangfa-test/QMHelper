@@ -1,6 +1,7 @@
 package me.kofua.qmhelper.utils
 
 import org.luckypray.dexkit.DexKitBridge
+import org.luckypray.dexkit.query.BatchFindMethodUsingStrings
 import org.luckypray.dexkit.query.FindMethod
 import org.luckypray.dexkit.query.enums.StringMatchType
 import org.luckypray.dexkit.query.matchers.MethodMatcher
@@ -78,13 +79,72 @@ class DexHelper(private val classLoader: ClassLoader) : AutoCloseable {
         declaringClass: Class<*>? = null,
         parameterTypes: Array<Class<*>>? = null,
         findFirst: Boolean = true,
-    ): List<Method> = query(findFirst) { matcher ->
-        matcher.addUsingString(str, if (matchPrefix) StringMatchType.StartsWith else StringMatchType.Contains)
-        if (returnType != null) matcher.returnType(returnType)
-        if (parameterCount >= 0) matcher.paramCount(parameterCount)
-        if (parameterShorty != null) matcher.protoShorty(parameterShorty)
-        if (declaringClass != null) matcher.declaredClass(declaringClass)
-        if (parameterTypes != null && parameterTypes.isNotEmpty()) matcher.paramTypes(*parameterTypes)
+    ): List<Method> {
+        val raw = queryUsingString(str, if (matchPrefix) StringMatchType.StartsWith else StringMatchType.Contains)
+        return raw.asSequence()
+            .filter { it.matchesReturnType(returnType) }
+            .filter { parameterCount < 0 || it.paramCount == parameterCount }
+            .filter { parameterShorty == null || it.protoShortyOf() == parameterShorty }
+            .filter { declaringClass == null || it.declaredClassName == declaringClass.name }
+            .filter { parameterTypes.isNullOrEmpty() || it.matchesParamTypes(parameterTypes) }
+            .mapNotNull { md ->
+                val m = md.toMethodOrNull()
+                if (m == null) Log.d("DexKit 解析失败: ${md.methodSign}")
+                m
+            }
+            .let { if (findFirst) it.take(1).toList() else it.toList() }
+            .also {
+                Log.d(
+                    "DexKit 字符串定位 [$str] raw=${raw.size} ok=${it.size}" +
+                        if (raw.isNotEmpty()) " 首个=${raw.first().methodSign}" else ""
+                )
+            }
+    }
+
+    /** 用 DexKit 的批量字符串搜索接口（比单条 matcher 更稳，且能一次拿全量）。 */
+    private fun queryUsingString(str: String, matchType: StringMatchType): List<MethodData> {
+        val dexKit = bridge ?: return emptyList()
+        return try {
+            val query = BatchFindMethodUsingStrings().apply {
+                groups(mapOf("q" to listOf(str)), matchType, false)
+            }
+            dexKit.batchFindMethodUsingStrings(query)["q"]?.toList().orEmpty()
+        } catch (t: Throwable) {
+            Log.e("DexKit 批量字符串搜索失败 [$str]")
+            Log.e(t)
+            emptyList()
+        }
+    }
+
+    private fun MethodData.matchesReturnType(type: Class<*>?): Boolean =
+        type == null || returnTypeName == type.name
+
+    private fun MethodData.matchesParamTypes(types: Array<Class<*>>): Boolean {
+        if (paramTypeNames.size != types.size) return false
+        return types.indices.all { i ->
+            val want = types[i].name
+            val got = paramTypeNames[i]
+            got == want || got == types[i].simpleName
+        }
+    }
+
+    /** DexKit 不直接给短签名，这里按参数类型名自己拼（L 开头记 L，基本类型取首字母）。 */
+    private fun MethodData.protoShortyOf(): String = buildString {
+        append(returnTypeName.shortyOf())
+        paramTypeNames.forEach { append(it.shortyOf()) }
+    }
+
+    private fun String.shortyOf(): Char = when (this) {
+        "void" -> 'V'
+        "boolean" -> 'Z'
+        "byte" -> 'B'
+        "char" -> 'C'
+        "short" -> 'S'
+        "int" -> 'I'
+        "long" -> 'J'
+        "float" -> 'F'
+        "double" -> 'D'
+        else -> 'L'
     }
 
     /** 按"方法调用了 [target]"定位调用方（等价于旧版的 findMethodInvoking）。 */

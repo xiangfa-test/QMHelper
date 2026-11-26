@@ -61,6 +61,7 @@ class XposedInit : XposedModule() {
         if (!prepared.compareAndSet(false, true)) return
         HookEnv.classLoader = packageClassLoader
         disableTinker()
+        installActivityTracker()
         installApplicationHook(packageName)
     }
 
@@ -98,6 +99,20 @@ class XposedInit : XposedModule() {
         Log.e("挂 callApplicationOnCreate 失败")
         Log.e(t)
     }
+
+    /**
+     * 记录宿主当前前台 Activity。
+     *
+     * 模块自己的设置面板是弹在宿主窗口上的 Dialog，需要"此刻正在看的那个 Activity"。
+     * 挂 `Activity#onResume` 最省：每个 Activity 只触发一次，也不用反射 ActivityThread 的私有表。
+     */
+    private fun installActivityTracker() = runCatching {
+        android.app.Activity::class.java
+            .getDeclaredMethod("onResume")
+            .apply { isAccessible = true }
+            .hookAfter { param -> (param.thisObject as? android.app.Activity)?.let(HookEnv::recordActivity) }
+        Log.d("已挂 Activity#onResume（用于定位模块设置面板的宿主窗口）")
+    }.onFailure { Log.w("挂 Activity#onResume 失败：${it.message}") }
 
     private fun allHooks(): List<BaseHook> {
         val debugHooks = if (BuildConfig.DEBUG) {
