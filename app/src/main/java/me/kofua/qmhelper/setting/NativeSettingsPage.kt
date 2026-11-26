@@ -89,12 +89,15 @@ object NativeSettingsPage {
             }
 
             // 构造器钩子：宿主 new 我们代理类的瞬间挂 handler（上游 1.1.4 同款手法）。
-            val baseClass = FRAGMENT_CLASS.from(classLoader) ?: return false
-            val unhooks = baseClass.hookBeforeAllConstructors { param ->
+            // 构造器钩子挂在**代理子类**自己身上（而不是基类）：dexmaker 生成的类由模块
+            // InMemoryDexClassLoader 加载，基类构造器 hook 在某些框架版本下拦不到子类的
+            // super() 链；直接 hook 子类构造器最直接、必触发。
+            // 另外不 unhook：条目页构造完成后这条钩子就闲置了，只做一次类名/代价可忽略。
+            val unhooks = fragClass.hookBeforeAllConstructors { param ->
                 val inst = param.thisObject ?: return@hookBeforeAllConstructors
-                if (inst.javaClass.name == fragClass.name) {
-                    runCatching { inst.invocationHandler(fragHandler) }
-                }
+                Log.d("原生设置页：代理 Fragment 构造触发，挂 handler")
+                runCatching { inst.invocationHandler(fragHandler) }
+                    .onFailure { Log.e("原生设置页：handler 挂载失败"); Log.e(it) }
             }
             // ⚠️ 不能在 callMethod 返回后立刻 unhook：addSecondFragment 是把 Fragment 事务
             // post 到主线程队列，真正 new 出代理实例发生在返回之后。构造器钩子只对
