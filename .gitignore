@@ -8,3 +8,4 @@
 .externalNativeBuild
 *.apk
 signing.properties
+keystore.properties

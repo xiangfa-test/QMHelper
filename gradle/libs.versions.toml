@@ -1,18 +1,19 @@
 [versions]
-kotlin = "1.8.21"
-coroutine = "1.7.1"
+kotlin = "2.0.10"
+coroutine = "1.9.0"
 
 [plugins]
 kotlin = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-agp-app = { id = "com.android.application", version = "8.0.1" }
-lsplugin-resopt = { id = "org.lsposed.lsplugin.resopt", version = "1.5" }
-lsplugin-cmaker = { id = "org.lsposed.lsplugin.cmaker", version = "1.1" }
+agp-app = { id = "com.android.application", version = "8.7.2" }
 
 [libraries]
-xposed = { module = "de.robv.android.xposed:api", version = "82" }
-cxx = { module = "dev.rikka.ndk.thirdparty:cxx", version = "1.2.0" }
+# 现代 Xposed API（libxposed，API 102）。运行时由框架（LSPosed）提供，只能 compileOnly。
+xposed-api = { module = "io.github.libxposed:api", version = "102.0.0" }
+# DexKit：替代原来的 JNI + DexBuilder 自研 dex 索引（见 utils/DexHelper.kt）。
+dexkit = { module = "org.luckypray:dexkit", version = "2.3.0" }
+# 运行期生成“宿主类子类代理”，用于把本模块的设置项塞进 Q音 自己的设置页。
 dexmaker = { module = "com.linkedin.dexmaker:dexmaker", version = "2.28.3" }
 kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
 kotlin-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutine" }
 kotlin-coroutines-jdk = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-jdk8", version.ref = "coroutine" }
-androidx-annotation = { module = "androidx.annotation:annotation", version = "1.6.0" }
+androidx-annotation = { module = "androidx.annotation:annotation", version = "1.8.0" }

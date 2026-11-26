@@ -119,13 +119,9 @@ class QMPackage private constructor() {
             }
             //val classesList = classLoader.allClassesList(dexClassLoaderDelegate).asSequence()
 
-            try {
-                System.loadLibrary("qmhelper")
-            } catch (e: Throwable) {
-                Log.e(e)
-                BannerTips.error(R.string.not_supported)
-                return@out
-            }
+            // 1.1.4 那版在这里 System.loadLibrary("qmhelper") 挂自研 JNI（DexBuilder 引擎）。
+            // 现在 dex 索引换成 DexKit（libdexkit.so），加载由 DexHelper / NativeLib 按绝对路径
+            // 自行处理 —— 宿主进程里 System.loadLibrary 根本找不到模块 APK 里的 so。
             val dexClassLoader =
                 classLoader.findDexClassLoader(dexClassLoaderDelegate) ?: return@out
             val dexHelper = DexHelper(dexClassLoader)
@@ -781,7 +777,7 @@ class QMPackage private constructor() {
                 val toValidFilenameMethod = dexHelper.findMethodInvoking(
                     getSongNameIndex,
                     returnType = stringIndex,
-                    parameterTypes = longArrayOf(stringIndex, stringIndex, stringIndex),
+                    parameterTypes = arrayOf(stringIndex, stringIndex, stringIndex),
                 ).asSequence().firstNotNullOfOrNull {
                     dexHelper.decodeMethodIndex(it)
                 } ?: return@apply
@@ -896,7 +892,7 @@ class QMPackage private constructor() {
                 if (showButtonMethod == null) {
                     showButtonMethod = dexHelper.findMethodUsingString(
                         "[showMusicWorldEntranceBtn]",
-                        parameterTypes = longArrayOf(dexHelper.encodeClassIndex(onClickListenerClass))
+                        parameterTypes = arrayOf(dexHelper.encodeClassIndex(onClickListenerClass))
                     ).firstOrNull()?.let { dexHelper.decodeMethodIndex(it) }
                     clazz = showButtonMethod?.declaringClass ?: return@apply
                 }

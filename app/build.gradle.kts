@@ -7,20 +7,10 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.agp.app)
     alias(libs.plugins.kotlin)
-    alias(libs.plugins.lsplugin.cmaker)
-    alias(libs.plugins.lsplugin.resopt)
 }
-
-val releaseStoreFile: String? by rootProject
-val releaseStorePassword: String? by rootProject
-val releaseKeyAlias: String? by rootProject
-val releaseKeyPassword: String? by rootProject
 
 val appVerName: String by rootProject
 val buildWithGitSuffix: String by rootProject
-
-val gitCommitCount = "git rev-list HEAD --count".execute().toInt()
-val gitCommitHash = "git rev-parse --verify --short HEAD".execute()
 
 fun String.execute(currentWorkingDir: File = file("./")): String {
     val byteOut = ByteArrayOutputStream()
@@ -32,28 +22,18 @@ fun String.execute(currentWorkingDir: File = file("./")): String {
     return String(byteOut.toByteArray()).trim()
 }
 
-cmaker {
-    default {
-        targets("qmhelper")
-        abiFilters("armeabi-v7a", "arm64-v8a", "x86")
-        arguments += "-DANDROID_STL=none"
-        cppFlags += "-Wno-c++2b-extensions"
-    }
-
-    buildTypes {
-        arguments += "-DDEBUG_SYMBOLS_PATH=${project.buildDir.absolutePath}/symbols/${it.name}"
-    }
-}
+val gitCommitCount = "git rev-list HEAD --count".execute().toInt()
+val gitCommitHash = "git rev-parse --verify --short HEAD".execute()
 
 android {
     namespace = "me.kofua.qmhelper"
-    compileSdk = 33
-    ndkVersion = "25.1.8937393"
+    compileSdk = 34
+    buildToolsVersion = "34.0.0"
 
     defaultConfig {
         applicationId = "me.kofua.qmhelper"
         minSdk = 23
-        targetSdk = 33
+        targetSdk = 34
         versionCode = gitCommitCount
         versionName = appVerName
 
@@ -62,20 +42,21 @@ android {
     }
 
     signingConfigs {
-        releaseStoreFile?.let {
-            create("release") {
-                storeFile = rootProject.file(it)
-                storePassword = releaseStorePassword
-                keyAlias = releaseKeyAlias
-                keyPassword = releaseKeyPassword
+        val keystoreFile = rootProject.file("keystore.properties")
+        if (keystoreFile.isFile) {
+            val prop = Properties().apply {
+                keystoreFile.inputStream().use(this::load)
             }
-        } ?: run {
-            val keystore = rootProject.file("signing.properties")
-                .takeIf { it.isFile } ?: return@run
-            create("release") {
-                val prop = Properties().apply {
-                    keystore.inputStream().use(this::load)
-                }
+            create("release").apply {
+                storeFile = rootProject.file(prop.getProperty("keystore.path"))
+                storePassword = prop.getProperty("keystore.password")
+                keyAlias = prop.getProperty("key.alias")
+                keyPassword = prop.getProperty("key.password")
+            }
+            // 复用同一把密钥给 debug，这样 debug / release 能互相覆盖安装，
+            // 也省掉 AGP 去 ~/.android 生成默认 debug.keystore 的需求（本机那个目录不可写）。
+            // 注意：AGP 8.x 会预置一个名为 debug 的 SigningConfig，所以用 maybeCreate。
+            maybeCreate("debug").apply {
                 storeFile = rootProject.file(prop.getProperty("keystore.path"))
                 storePassword = prop.getProperty("keystore.password")
                 keyAlias = prop.getProperty("key.alias")
@@ -85,7 +66,6 @@ android {
     }
 
     buildFeatures {
-        prefab = true
         buildConfig = true
     }
 
@@ -100,30 +80,52 @@ android {
             isShrinkResources = true
             proguardFiles("proguard-rules.pro")
         }
+        debug {
+            isMinifyEnabled = false
+        }
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "17"
         freeCompilerArgs = listOf(
-            "-language-version=2.0",
             "-Xno-param-assertions",
             "-Xno-call-assertions",
             "-Xno-receiver-assertions",
             "-opt-in=kotlin.RequiresOptIn",
-            "-Xcontext-receivers",
-            "-opt-in=kotlin.time.ExperimentalTime",
             "-opt-in=kotlin.contracts.ExperimentalContracts",
         )
     }
 
     packaging {
         resources {
-            excludes += "**"
+            // META-INF/xposed/* 承载现代（libxposed）模块元数据：
+            //   module.prop     —— 版本与目标 API
+            //   java_init.list  —— 模块入口类（必须是 io.github.libxposed.api.XposedModule 的子类）
+            //   scope.list      —— 作用域包名
+            // 打包时绝对不能把这些排掉，否则框架根本不认这个模块。
+            excludes += "/META-INF/*.version"
+            excludes += "/META-INF/*.kotlin_module"
+            excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/LICENSE"
+            excludes += "/META-INF/LICENSE.txt"
+            excludes += "/META-INF/NOTICE"
+            excludes += "/META-INF/NOTICE.txt"
+            excludes += "/kotlin/**"
+            excludes += "/*.txt"
+            excludes += "/*.bin"
+        }
+        dex {
+            useLegacyPackaging = true
+        }
+        jniLibs {
+            // DexKit 的 libdexkit.so 由模块自己按绝对路径 dlopen（宿主进程里
+            // System.loadLibrary 找不到模块 APK 的 so），所以必须按原名解压出来。
+            useLegacyPackaging = true
         }
     }
 
@@ -138,17 +140,9 @@ android {
     androidResources {
         additionalParameters += arrayOf("--allow-reserved-package-id", "--package-id", "0x33")
     }
-
-    externalNativeBuild {
-        cmake {
-            path("src/main/jni/CMakeLists.txt")
-            version = "3.22.1+"
-        }
-    }
 }
 
 afterEvaluate {
-    tasks.getByPath("installDebug").finalizedBy(restartHost)
     android.applicationVariants.forEach { variant ->
         if (variant.name != "release") return@forEach
         val variantCapped = variant.name.capitalized()
@@ -170,25 +164,11 @@ configurations.all {
 }
 
 dependencies {
-    compileOnly(libs.xposed)
+    compileOnly(libs.xposed.api)
     implementation(libs.kotlin.stdlib)
     implementation(libs.kotlin.coroutines.android)
     implementation(libs.kotlin.coroutines.jdk)
     implementation(libs.androidx.annotation)
-    implementation(libs.cxx)
+    implementation(libs.dexkit)
     implementation(libs.dexmaker)
-}
-
-val restartHost: Task = task("restartHost").doLast {
-    val adb: String = androidComponents.sdkComponents.adb.get().asFile.absolutePath
-    exec {
-        commandLine(adb, "shell", "am", "force-stop", "com.tencent.qqmusic")
-    }
-    exec {
-        Thread.sleep(2000)
-        commandLine(
-            adb, "shell", "am", "start",
-            "$(pm resolve-activity --components com.tencent.qqmusic)"
-        )
-    }
 }

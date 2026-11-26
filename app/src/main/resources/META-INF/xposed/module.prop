@@ -1,0 +1,6 @@
+# 现代（libxposed）模块元数据：框架读这个文件决定要不要加载本模块、以哪个 API 级别注入。
+#
+# minApiVersion=101 —— 入口用的生命周期回调（onPackageReady 等）从 101 就有；
+# targetApiVersion=102 —— 以 API 102 的语义编译（链式 hook、ExceptionMode 等）。
+minApiVersion=101
+targetApiVersion=102

@@ -1,14 +1,19 @@
 -repackageclasses "qmhelper"
 
+# 模块入口：java_init.list 里写的是完整类名，混淆掉框架就找不到它了。
 -keep class me.kofua.qmhelper.XposedInit {
     <init>();
 }
 
--keepclasseswithmembers class me.kofua.qmhelper.utils.DexHelper {
- native <methods>;
- long token;
- java.lang.ClassLoader classLoader;
+# DexKit / libxposed 是运行时由框架或 native 反射调用的，保留名字。
+-keep class io.github.libxposed.api.** { *; }
+-keep class org.luckypray.dexkit.** { *; }
+-keepclassmembers class org.luckypray.dexkit.DexKitBridge {
+    native <methods>;
 }
+
+# 注入进宿主进程后要按名字反射的类（宿主类名/字段名 + 本模块数据类）。 
+-keep class me.kofua.qmhelper.data.** { *; }
 
 -keepattributes RuntimeVisible*Annotations
 
@@ -23,10 +28,6 @@
 -keepclassmembernames class me.kofua.qmhelper.data.* implements java.io.Serializable {
     <fields>;
 }
-
-#-keepclassmembers class me.kofua.qmhelper.MainActivity$Companion {
-#    boolean isModuleActive();
-#}
 
 -assumenosideeffects class kotlin.jvm.internal.Intrinsics {
     public static void check*(...);

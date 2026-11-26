@@ -2,7 +2,6 @@
 
 package me.kofua.qmhelper.utils
 
-import de.robv.android.xposed.XposedBridge
 import android.util.Log as ALog
 
 object Log {
@@ -26,7 +25,7 @@ object Log {
         } else {
             f(TAG, str)
             if (toXposed)
-                XposedBridge.log("$TAG : $str")
+                HookEnv.log(ALog.ERROR, TAG, str)
         }
     }
 

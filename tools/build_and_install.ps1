@@ -1,0 +1,60 @@
+# QMHelper 本地构建 / 安装 / 热重载 / 看日志一条龙
+#
+# 为什么需要这个脚本：
+#   * LSPosed 是**进程内注入**，改完模块只需要「杀掉 Q音 再启动」就会重载新模块，
+#     不需要重启模拟器、也不需要重启 LSPosed —— 所以迭代循环就是"装 + 杀 + 起 + 看日志"。
+#   * LSPosed 的模块日志不在 logcat 里，而在 /data/adb/lspd/log/ 下，且需要 root 才能读。
+#     这里直接 tail 那个文件，按模块包名过滤。
+#
+# 用法：
+#   powershell -File tools\build_and_install.ps1                  # 构建 + 装 + 热重载 + 打日志
+#   powershell -File tools\build_and_install.ps1 -SkipBuild        # 只装已有的包
+#   powershell -File tools\build_and_install.ps1 -Release          # 出 release 包（混淆过，体积小）
+param(
+    [switch]$SkipBuild,
+    [switch]$Release,
+    [string]$Serial = "emulator-5554",
+    [int]$WaitSeconds = 22
+)
+
+$ErrorActionPreference = "Stop"
+$repo = Split-Path -Parent $PSScriptRoot
+$workspace = Split-Path -Parent (Split-Path -Parent $repo)
+Set-Location $repo
+
+$env:JAVA_HOME = "$workspace\_tools\jdk-21.0.12.1+1"
+$env:GRADLE_USER_HOME = "$workspace\_tools\gradle-home"
+
+$variant = if ($Release) { "release" } else { "debug" }
+$apkDir = "app\build\outputs\apk\$variant"
+
+if (-not $SkipBuild) {
+    Write-Host "== 构建 $variant ==" -ForegroundColor Cyan
+    $task = if ($Release) { ":app:assembleRelease" } else { ":app:assembleDebug" }
+    & .\gradlew.bat --no-daemon $task 2>&1 | Select-String -Pattern '^e: |error:|BUILD (SUCCESSFUL|FAILED)' |
+        ForEach-Object { $_.Line }
+    if (-not (Test-Path $apkDir)) { Write-Host "!! 没有产物目录 $apkDir" -ForegroundColor Red; exit 1 }
+}
+
+$apk = Get-ChildItem "$apkDir\*.apk" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $apk) { Write-Host "!! 找不到 APK" -ForegroundColor Red; exit 1 }
+Write-Host "== 安装 $($apk.Name) ($([math]::Round($apk.Length/1MB,1)) MB) ==" -ForegroundColor Cyan
+& adb -s $Serial install -r -g $apk.FullName 2>&1 | Select-Object -Last 2
+
+$lspctl = "/data/adb/modules/zygisk_lsposed/lspctl"
+Write-Host "== 启用模块 + 作用域 ==" -ForegroundColor Cyan
+& adb -s $Serial shell "su -c '$lspctl scope set --user=0 me.kofua.qmhelper com.tencent.qqmusic >/dev/null 2>&1; $lspctl module enable --user=0 me.kofua.qmhelper >/dev/null 2>&1'" 2>&1 | Out-Null
+
+Write-Host "== 热重载：杀掉 Q音 再启动 ==" -ForegroundColor Cyan
+& adb -s $Serial shell am force-stop com.tencent.qqmusic
+Start-Sleep 2
+& adb -s $Serial shell am start -n com.tencent.qqmusic/.activity.AppStarterActivity 2>&1 | Select-Object -First 2
+
+Write-Host "== 等 $WaitSeconds 秒，抓模块日志 ==" -ForegroundColor Cyan
+Start-Sleep $WaitSeconds
+
+$log = & adb -s $Serial shell "su -c 'ls -t /data/adb/lspd/log/modules_*.log | head -1'"
+$log = $log.Trim()
+& adb -s $Serial shell "su -c 'tail -400 $log'" 2>&1 |
+    Select-String -Pattern 'qmhelper|QMHelper|Exception|Error|Couldn''t|couldn''t' |
+    Select-Object -Last 80 | ForEach-Object { $_.Line }

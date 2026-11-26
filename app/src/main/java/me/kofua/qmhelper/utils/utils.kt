@@ -3,7 +3,6 @@
 package me.kofua.qmhelper.utils
 
 import android.annotation.SuppressLint
-import android.app.AndroidAppHelper
 import android.content.*
 import android.content.pm.PackageManager
 import android.content.pm.PackageManager.NameNotFoundException
@@ -66,7 +65,16 @@ fun getPackageLastUpdateTime(packageName: String) = try {
     0
 }
 
-val currentContext by lazy { AndroidAppHelper.currentApplication() as Context }
+/**
+ * 宿主（QQ音乐）的 Application context。
+ *
+ * 老 API 用 `AndroidAppHelper.currentApplication()` —— 现代 API 没有这个入口了，
+ * 所以改由 [HookEnv] 在 `Instrumentation#callApplicationOnCreate` 里捕获，
+ * 捕获不到再退回 `ActivityThread#currentApplication` 反射。
+ */
+val currentContext: Context by lazy {
+    HookEnv.appContext ?: currentApplication() ?: throw IllegalStateException("宿主 Context 尚未就绪")
+}
 
 val hostPackageName: String by lazy { currentContext.packageName }
 
