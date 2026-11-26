@@ -73,7 +73,8 @@ object NativeSettingsPage {
      */
     fun newFragmentInstance(context: Context): Any? {
         val clazz = ensureFragmentClass(context) ?: return null
-        return runCatchingOrNull { clazz.new(context) }
+        // BaseRecyclerSettingFragment 构造器是无参的（<init>()V）
+        return runCatchingOrNull { clazz.new() }
     }
 
     /** 拿页面类（给 addSecondFragment 用 —— 宿主要的是 Class 而不是实例）。 */
