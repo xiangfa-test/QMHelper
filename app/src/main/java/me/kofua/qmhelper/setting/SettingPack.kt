@@ -205,6 +205,11 @@ class SettingPack {
             R.string.prefs_allow_save_to_sdcard_extern_title,
             R.string.prefs_allow_save_to_sdcard_extern_summary,
         )?.let { add(it) }
+        Setting.switch(
+            "auto_cover_download",
+            R.string.prefs_auto_cover_download_title,
+            R.string.prefs_auto_cover_download_summary,
+        )?.let { add(it) }
 
         if (sPrefs.getBoolean("hidden", false)) {
             Setting.category(R.string.prefs_category_hidden)

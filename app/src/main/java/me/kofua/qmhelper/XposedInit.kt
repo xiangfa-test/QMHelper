@@ -92,6 +92,7 @@ class XposedInit : XposedModule() {
 
                 preloadProxyClasses()
                 startHook(allHooks())
+                CoverSweeper.start()
             } else {
                 // 子进程：锁屏开关的读写闸门 + eKey 采集（播放/下载都发生在这里）。
                 try {

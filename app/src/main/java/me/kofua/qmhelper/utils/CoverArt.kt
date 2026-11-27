@@ -36,6 +36,48 @@ object CoverArt {
      * @param sourcePath 加密文件路径，用来在宿主库里反查歌曲
      * @param ext        目标文件真实容器（flac/mp3/…）
      */
+    /** 文件里是否已经有封面（FLAC 的 PICTURE 块 / MP3 的 APIC 帧）。 */
+    fun hasCover(target: File, ext: String): Boolean = runCatching {
+        when (ext) {
+            "flac" -> fileHasFlacPicture(target)
+            "mp3" -> fileHasMp3Apic(target)
+            else -> false
+        }
+    }.getOrDefault(false)
+
+    private fun fileHasFlacPicture(file: File): Boolean = runCatching {
+        RandomAccessFile(file, "r").use { raf ->
+            raf.seek(4)
+            while (true) {
+                val header = raf.read()
+                if (header < 0) return@use false
+                val type = header and 0x7F
+                val last = header and 0x80 != 0
+                val length = (raf.read() shl 16) or (raf.read() shl 8) or raf.read()
+                if (type == 6) return@use true
+                raf.seek(raf.filePointer + length)
+                if (last) return@use false
+            }
+            @Suppress("UNREACHABLE_CODE")
+            false
+        }
+    }.getOrDefault(false)
+
+    private fun fileHasMp3Apic(file: File): Boolean = runCatching {
+        RandomAccessFile(file, "r").use { raf ->
+            val header = ByteArray(10)
+            raf.readFully(header)
+            if (String(header, 0, 3) != "ID3") return@use false
+            val size = ((header[6].toInt() and 0x7F) shl 21) or
+                ((header[7].toInt() and 0x7F) shl 14) or
+                ((header[8].toInt() and 0x7F) shl 7) or
+                (header[9].toInt() and 0x7F)
+            val body = ByteArray(size)
+            raf.readFully(body)
+            containsFrame(body, "APIC")
+        }
+    }.getOrDefault(false)
+
     fun attach(target: File, sourcePath: String, ext: String): Boolean {
         if (!target.isFile || target.length() < 1024) return false
         if (ext !in setOf("flac", "mp3")) {

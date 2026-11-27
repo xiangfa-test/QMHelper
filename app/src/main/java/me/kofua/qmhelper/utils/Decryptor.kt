@@ -341,8 +341,8 @@ object Decryptor {
         return null
     }
 
-    /** 扫描所有可能存放下载音乐的目录。 */
-    private fun getEncSongs(): List<File> {
+    /** 所有可能存放下载音乐的目录。 */
+    fun songDirs(): List<File> {
         val dirs = linkedSetOf<File>()
         runCatching {
             qmPackage.storageUtilsClass
@@ -358,12 +358,14 @@ object Decryptor {
         dirs.add(File(external, "qqmusic/song"))
         dirs.add(File(external, "Music/qqmusic/song"))
         dirs.add(File(external, "Android/data/${hostPackageName}/files/qqmusic/song"))
-
         return dirs.filter { it.isDirectory }
-            .flatMap { dir -> dir.listFiles()?.toList() ?: listOf() }
-            .filter { it.isFile && parseName(it) != null }
-            .sortedBy { it.name.lowercase() }
     }
+
+    /** 扫描所有加密音乐。 */
+    private fun getEncSongs(): List<File> = songDirs()
+        .flatMap { dir -> dir.listFiles()?.toList() ?: listOf() }
+        .filter { it.isFile && parseName(it) != null }
+        .sortedBy { it.name.lowercase() }
 
     private fun uniqueFile(dir: File, name: String): File {
         var candidate = File(dir, name)
