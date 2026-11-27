@@ -86,6 +86,10 @@ class XposedInit : XposedModule() {
 
                 Log.d("QQMusic process launched ...")
                 Log.d("QMHelper version: ${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE}) from ${HookEnv.moduleApkPath}${if (isBuiltIn) " (BuiltIn)" else ""}")
+                runCatching {
+                    val apk = java.io.File(HookEnv.moduleApkPath)
+                    Log.d("模块 APK：${apk.length()} 字节，mtime=${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(apk.lastModified()))}")
+                }
                 Log.d("QQMusic version: ${getPackageVersion(packageName)} (${if (is64) "64" else "32"}bit)")
                 Log.d("SDK: ${Build.VERSION.RELEASE}(${Build.VERSION.SDK_INT}); Phone: ${Build.BRAND} ${Build.MODEL}")
                 Log.d("Config: ${sPrefs.all}")

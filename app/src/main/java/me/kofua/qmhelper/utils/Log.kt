@@ -4,53 +4,53 @@ package me.kofua.qmhelper.utils
 
 import android.util.Log as ALog
 
+/**
+ * 统一日志出口。
+ *
+ * 每条日志同时写两个地方：
+ *  - logcat（`adb logcat -s QMHelper:V` 看）
+ *  - LSPosed 框架日志（模块页 → 日志，或 `/data/adb/lspd/log/` 下的文件）
+ *
+ * 框架日志默认开启，不需要再开任何开关。逐条过长时按 3000 字切块，避免被框架截断。
+ */
 object Log {
     private const val maxLength = 3000
     private const val TAG = "QMHelper"
 
     @JvmStatic
-    private fun doLog(f: (String, String) -> Int, obj: Any?, toXposed: Boolean = false) {
-        val str = if (obj is Throwable) ALog.getStackTraceString(obj) else obj.toString()
+    private fun emit(priority: Int, text: String) {
+        ALog.println(priority, TAG, text)
+        // 框架还没挂上时（onModuleLoaded 之前）跳过，避免把同一行写两次 logcat
+        if (HookEnv.module != null) HookEnv.log(priority, TAG, text)
+    }
 
-        if (str.length > maxLength) {
-            val chunkCount: Int = str.length / maxLength
-            for (i in 0..chunkCount) {
-                val max: Int = maxLength * (i + 1)
-                if (max >= str.length) {
-                    doLog(f, str.substring(maxLength * i), toXposed)
-                } else {
-                    doLog(f, str.substring(maxLength * i, max), toXposed)
-                }
-            }
-        } else {
-            f(TAG, str)
-            if (toXposed)
-                HookEnv.log(ALog.ERROR, TAG, str)
+    @JvmStatic
+    private fun doLog(priority: Int, obj: Any?) {
+        val str = if (obj is Throwable) ALog.getStackTraceString(obj) else obj.toString()
+        if (str.length <= maxLength) {
+            emit(priority, str)
+            return
+        }
+        var start = 0
+        while (start < str.length) {
+            val end = minOf(start + maxLength, str.length)
+            emit(priority, str.substring(start, end))
+            start = end
         }
     }
 
     @JvmStatic
-    fun d(obj: Any?) {
-        doLog(ALog::d, obj)
-    }
+    fun d(obj: Any?) = doLog(ALog.DEBUG, obj)
 
     @JvmStatic
-    fun i(obj: Any?) {
-        doLog(ALog::i, obj)
-    }
+    fun i(obj: Any?) = doLog(ALog.INFO, obj)
 
     @JvmStatic
-    fun e(obj: Any?) {
-        doLog(ALog::e, obj, true)
-    }
+    fun e(obj: Any?) = doLog(ALog.ERROR, obj)
 
     @JvmStatic
-    fun v(obj: Any?) {
-        doLog(ALog::v, obj)
-    }
+    fun v(obj: Any?) = doLog(ALog.VERBOSE, obj)
 
     @JvmStatic
-    fun w(obj: Any?) {
-        doLog(ALog::w, obj)
-    }
+    fun w(obj: Any?) = doLog(ALog.WARN, obj)
 }
