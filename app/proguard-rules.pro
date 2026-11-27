@@ -5,15 +5,21 @@
     <init>();
 }
 
-# DexKit / libxposed 是运行时由框架或 native 反射调用的，保留名字。
+# libxposed 是运行时由框架调用的，保留名字。
 -keep class io.github.libxposed.api.** { *; }
--keep class org.luckypray.dexkit.** { *; }
--keepclassmembers class org.luckypray.dexkit.DexKitBridge {
-    native <methods>;
-}
 
-# 注入进宿主进程后要按名字反射的类（宿主类名/字段名 + 本模块数据类）。 
+# DexKit：native 方法由 C++ 侧按 JNI 名字回调，且 keep 规则类被反射使用。
+-keep class org.luckypray.dexkit.** { *; }
+
+# 注入进宿主进程后要按名字反射的数据模型（HookInfo 序列化）。
 -keep class me.kofua.qmhelper.data.** { *; }
+
+# dexmaker：运行时生成子类 + 反射读写 $__handler 字段，混淆会破坏约定。
+-keep class com.android.dx.** { *; }
+-dontwarn com.android.dx.**
+
+# 注意：不能加 -overloadaggressively（dexmaker 的 super$xxx 桥接方法会被
+# 重命名破坏），也不能依赖它解决 hook 签名冲突 —— libxposed 链式 hook 不需要。
 
 -keepattributes RuntimeVisible*Annotations
 
@@ -37,6 +43,3 @@
 -assumenosideeffects class java.util.Objects {
     public static ** requireNonNull(...);
 }
-
--allowaccessmodification
--overloadaggressively

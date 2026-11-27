@@ -29,14 +29,21 @@ $variant = if ($Release) { "release" } else { "debug" }
 $apkDir = "app\build\outputs\apk\$variant"
 
 if (-not $SkipBuild) {
-    Write-Host "== 构建 $variant ==" -ForegroundColor Cyan
-    $task = if ($Release) { ":app:assembleRelease" } else { ":app:assembleDebug" }
-    & .\gradlew.bat --no-daemon $task 2>&1 | Select-String -Pattern '^e: |error:|BUILD (SUCCESSFUL|FAILED)' |
-        ForEach-Object { $_.Line }
-    if (-not (Test-Path $apkDir)) { Write-Host "!! 没有产物目录 $apkDir" -ForegroundColor Red; exit 1 }
+    # 每次构建同时出 debug + release：release 是测试/发布主包，debug 用于带符号排查
+    Write-Host "== 构建 debug + release ==" -ForegroundColor Cyan
+    & .\gradlew.bat --no-daemon :app:assembleDebug :app:assembleRelease 2>&1 |
+        Select-String -Pattern '^e: |error:|BUILD (SUCCESSFUL|FAILED)' | ForEach-Object { $_.Line }
 }
 
-$apk = Get-ChildItem "$apkDir\*.apk" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+# 测试优先 release（正式包、R8 混淆后行为与发布一致）；-DebugBuild 强制用 debug 排查
+$preferredDir = if ($Release) { "app\build\outputs\apk\release" } else { "app\build\outputs\apk\release" }
+$apk = $null
+foreach ($dir in @($preferredDir, "app\build\outputs\apk\debug")) {
+    if ($DebugBuild -and $dir -match 'release') { continue }
+    $candidate = Get-ChildItem "$dir\*.apk" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($candidate) { $apk = $candidate; break }
+}
 if (-not $apk) { Write-Host "!! 找不到 APK" -ForegroundColor Red; exit 1 }
 Write-Host "== 安装 $($apk.Name) ($([math]::Round($apk.Length/1MB,1)) MB) ==" -ForegroundColor Cyan
 & adb -s $Serial install -r -g $apk.FullName 2>&1 | Select-Object -Last 2

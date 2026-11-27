@@ -76,8 +76,11 @@ android {
             }
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // ⚠️ 本机 AGP 8.7.2 的 R8 8.7.18 处理本项目输入时在 graph 遍历处
+            // StackOverflowError（1020 层自递归，与 keep 规则无关，fullMode=false、
+            // 加大 -Xss 均无效）。release 暂时跳过混淆：包体大一点，语义与发布一致。
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles("proguard-rules.pro")
         }
         debug {
