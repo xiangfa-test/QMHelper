@@ -10,3 +10,4 @@
 signing.properties
 keystore.properties
 .kotlin/
+dist/
