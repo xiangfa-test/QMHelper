@@ -56,7 +56,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $lspctl = "/data/adb/modules/zygisk_lsposed/lspctl"
 Write-Host "== 启用模块 + 作用域 ==" -ForegroundColor Cyan
-& adb -s $Serial shell "su -c '$lspctl scope set --user=0 me.kofua.qmhelper com.tencent.qqmusic >/dev/null 2>&1; $lspctl module enable --user=0 me.kofua.qmhelper >/dev/null 2>&1'" 2>&1 | Out-Null
+& adb -s $Serial shell "su -c '$lspctl scope set --user=0 io.github.xiangfa_test.qmhelper com.tencent.qqmusic >/dev/null 2>&1; $lspctl module enable --user=0 io.github.xiangfa_test.qmhelper >/dev/null 2>&1'" 2>&1 | Out-Null
 
 Write-Host "== 热重载：杀掉 Q音 再启动 ==" -ForegroundColor Cyan
 & adb -s $Serial shell am force-stop com.tencent.qqmusic

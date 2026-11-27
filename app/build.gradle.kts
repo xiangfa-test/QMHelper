@@ -31,7 +31,7 @@ android {
     buildToolsVersion = "34.0.0"
 
     defaultConfig {
-        applicationId = "me.kofua.qmhelper"
+        applicationId = "io.github.xiangfa_test.qmhelper"
         minSdk = 23
         targetSdk = 34
         versionCode = gitCommitCount

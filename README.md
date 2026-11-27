@@ -4,9 +4,11 @@
 
 ## 安装
 
-1. 从 [GitHub Releases](https://github.com/xiangfa-test/QMHelper/releases/latest) 下载并安装 APK。
+1. 从 [GitHub Releases](https://github.com/xiangfa-test/QMHelper/releases/latest) 或 [Xposed 模块仓库](https://modules.lsposed.org/module/io.github.xiangfa_test.qmhelper) 下载并安装 APK。
 2. 在支持 libxposed API 102 的 LSPosed 中启用 Q 音助手，勾选 QQ 音乐（`com.tencent.qqmusic`）作为作用域。
 3. 重启 QQ 音乐，从「我的 → 更多 → Q 音助手」打开模块设置。
+
+模块包名为 `io.github.xiangfa_test.qmhelper`。如果手机已装旧包 `me.kofua.qmhelper`，请在 LSPosed 中关闭旧模块并启用新模块，避免两份模块同时注入 QQ 音乐。
 
 本版本以 QQ 音乐 Android 21.0.5.5（7755）为适配目标。宿主升级后，部分功能可能需要重新适配。
 
