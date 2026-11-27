@@ -81,7 +81,7 @@ object CoverArt {
     fun attach(target: File, sourcePath: String, ext: String): Boolean {
         if (!target.isFile || target.length() < 1024) return false
         if (ext !in setOf("flac", "mp3")) {
-            Log.d("封面：$ext 容器暂不支持，跳过")
+            Log.step("封面：$ext 容器暂不支持，跳过")
             return false
         }
         val tags = readTags(target) ?: tagsFromFileName(target)

@@ -13,6 +13,13 @@
     <string name="prefs_category_backup">备份与还原</string>
     <string name="prefs_export_title">导出配置</string>
     <string name="prefs_import_title">导入配置</string>
+    <string name="prefs_category_dev">开发者选项</string>
+    <string name="prefs_log_level_title">日志级别</string>
+    <string name="prefs_log_level_summary">警告：只输出警告和错误；正常：加上操作完成；完整：每一步都输出</string>
+    <string name="prefs_log_to_xposed_title">写入 LSPosed 日志</string>
+    <string name="prefs_log_to_xposed_summary">除了 logcat，同时写进模块页面的日志（默认开启）</string>
+    <string name="prefs_dump_ad_cgi_title">导出广告 CGI 日志（调试）</string>
+    <string name="prefs_dump_ad_cgi_summary">把带广告/Banner 字段的接口响应打到 logcat，用于定位具体广告位；定位完记得关掉</string>
     <string name="prefs_category_settings">设置</string>
     <string name="prefs_save_log_title">保存日志到文件</string>
     <string name="prefs_save_log_summary">启用后，日志将保存到文件%s</string>
@@ -142,8 +149,6 @@
     <string name="prefs_unlock_font_title">解锁所有字体</string>
     <string name="prefs_unlock_font_summary">解锁所有歌词及歌词海报字体</string>
     <string name="prefs_unlock_lyric_kinetic_title">解锁所有歌词动效</string>
-    <string name="prefs_dump_ad_cgi_title">导出广告 CGI 日志（调试）</string>
-    <string name="prefs_dump_ad_cgi_summary">把带广告/Banner 字段的接口响应打到 logcat，用于定位具体广告位；定位完记得关掉</string>
     <string name="prefs_hide_song_list_guide_title">隐藏“新建/导入歌单”引导</string>
     <string name="prefs_hide_song_list_guide_summary">通过强制指定AB实验策略隐藏我的页面自建歌单“新建/导入歌单”引导项，可能失效</string>
     <string name="prefs_disable_lock_screen_title">强制关闭锁屏图片</string>

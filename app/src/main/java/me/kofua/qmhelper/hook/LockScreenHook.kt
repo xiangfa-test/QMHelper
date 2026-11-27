@@ -36,14 +36,14 @@ object LockScreenHook : BaseHook {
 
     private fun hook(writePrefs: Boolean) {
         if (!sPrefs.getBoolean(KEY_MODULE_SWITCH, true)) {
-            Log.d("锁屏图片：模块开关已关闭，不干预")
+            Log.step("锁屏图片：模块开关已关闭，不干预")
             return
         }
         // 先复位再装钩子，否则下面那条读取闸门会短路掉复位时的取值。
         if (writePrefs) resetStoredSwitch()
         hookWrite()
         hookRead()
-        Log.d("锁屏图片：已接管 enableLockScreen")
+        Log.done("锁屏图片：已接管 enableLockScreen")
     }
 
     /** 把已存的「开启」状态改回关闭。 */
@@ -52,7 +52,7 @@ object LockScreenHook : BaseHook {
             val prefs = hostPrefs()
             if (prefs.getBoolean(KEY_ENABLE, false) || !prefs.contains(KEY_ENABLE)) {
                 prefs.edit { putBoolean(KEY_ENABLE, false) }
-                Log.d("锁屏图片：enableLockScreen 已复位为 false")
+                Log.done("锁屏图片：enableLockScreen 已复位为 false")
             }
         } catch (t: Throwable) {
             Log.w("锁屏图片：复位开关失败 ${t.message}")
@@ -76,7 +76,7 @@ object LockScreenHook : BaseHook {
                 param.args[1] = false
                 if (!loggedBlockedWrite) {
                     loggedBlockedWrite = true
-                    Log.d("锁屏图片：拦下一次「开启」写入")
+                    Log.step("锁屏图片：拦下一次「开启」写入")
                 }
             }
             ?: Log.w("锁屏图片：没找到 SharedPreferencesImpl\$EditorImpl，写入闸门未装")

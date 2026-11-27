@@ -81,7 +81,7 @@ object EKeyHook : BaseHook {
             table.hookBeforeMethod("insertOrUpdate", String::class.java, String::class.java) { param ->
                 EKeyStore.record(param.args[0] as? String, param.args[1] as? String)
             }
-            Log.d("eKey 采集：已接管锁定表读写点")
+            Log.done("eKey 采集：已接管锁定表读写点")
         } catch (t: Throwable) {
             Log.w("eKey 采集：锁定表 hook 失败 ${t.message}")
         }

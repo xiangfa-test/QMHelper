@@ -243,12 +243,31 @@ class SettingPack {
                 "unlock_lyric_kinetic",
                 R.string.prefs_unlock_lyric_kinetic_title
             )?.let { add(it) }
-            Setting.switch(
-                "dump_ad_cgi",
-                R.string.prefs_dump_ad_cgi_title,
-                R.string.prefs_dump_ad_cgi_summary,
-            )?.let { add(it) }
         }
+
+        Setting.category(R.string.prefs_category_dev)
+            ?.let { add(it) }
+        Setting.button(
+            string(R.string.prefs_log_level_title),
+            string(R.string.prefs_log_level_summary),
+            rightDesc = Log.levelName(),
+        ) {
+            onLogLevelClicked()
+        }?.let { add(it) }
+        Setting.switch(
+            R.string.prefs_log_to_xposed_title,
+            R.string.prefs_log_to_xposed_summary,
+            isSwitchOn = { sPrefs.getBoolean("log_to_xposed", true) },
+            onSwitchChanged = { enabled ->
+                sPrefs.edit { putBoolean("log_to_xposed", enabled) }
+                Log.refresh()
+            }
+        )?.let { add(it) }
+        Setting.switch(
+            "dump_ad_cgi",
+            R.string.prefs_dump_ad_cgi_title,
+            R.string.prefs_dump_ad_cgi_summary,
+        )?.let { add(it) }
 
         Setting.category(R.string.prefs_category_settings)
             ?.let { add(it) }
@@ -382,6 +401,21 @@ class SettingPack {
                 }
             }
         }
+    }
+
+    private fun onLogLevelClicked() {
+        val levels = arrayOf(Log.LEVEL_WARN, Log.LEVEL_NORMAL, Log.LEVEL_FULL)
+        val labels = levels.map { Log.levelName(it) }.toTypedArray()
+        val current = levels.indexOf(sPrefs.getInt("log_level", Log.LEVEL_NORMAL)).coerceAtLeast(0)
+        AlertDialog.Builder(activity, themeIdForDialog)
+            .setTitle(string(R.string.prefs_log_level_title))
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                sPrefs.edit { putInt("log_level", levels[which]) }
+                Log.refresh()
+                dialog.dismiss()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun onPurifyHomeTopTabClicked() {

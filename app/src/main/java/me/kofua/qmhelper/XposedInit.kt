@@ -39,8 +39,8 @@ class XposedInit : XposedModule() {
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         HookEnv.attach(this, param.processName)
-        Log.d("模块已加载：process=${param.processName} api=$apiVersion framework=$frameworkName $frameworkVersion")
-        Log.d("模块路径：${HookEnv.moduleApkPath}")
+        Log.done("模块已加载：process=${param.processName} api=$apiVersion framework=$frameworkName $frameworkVersion")
+        Log.step("模块路径：${HookEnv.moduleApkPath}")
     }
 
     /** 包的默认 classloader 出现时触发（老 Android 上先于 onPackageReady）。 */
@@ -79,20 +79,21 @@ class XposedInit : XposedModule() {
         ) { param ->
             val application = param.args.getOrNull(0) as? Application ?: return@hookBeforeMethod
             HookEnv.appContext = application
+            Log.refresh()
             HookEnv.loadModuleResources(application)?.let { HookEnv.moduleResources = it }
 
             if (!HookEnv.processName.contains(":")) {
                 if (shouldSaveLog) startLog()
 
-                Log.d("QQMusic process launched ...")
-                Log.d("QMHelper version: ${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE}) from ${HookEnv.moduleApkPath}${if (isBuiltIn) " (BuiltIn)" else ""}")
+                Log.step("QQMusic process launched ...")
+                Log.done("QMHelper version: ${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE}) from ${HookEnv.moduleApkPath}${if (isBuiltIn) " (BuiltIn)" else ""}")
                 runCatching {
                     val apk = java.io.File(HookEnv.moduleApkPath)
-                    Log.d("模块 APK：${apk.length()} 字节，mtime=${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(apk.lastModified()))}")
+                    Log.step("模块 APK：${apk.length()} 字节，mtime=${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(apk.lastModified()))}")
                 }
-                Log.d("QQMusic version: ${getPackageVersion(packageName)} (${if (is64) "64" else "32"}bit)")
-                Log.d("SDK: ${Build.VERSION.RELEASE}(${Build.VERSION.SDK_INT}); Phone: ${Build.BRAND} ${Build.MODEL}")
-                Log.d("Config: ${sPrefs.all}")
+                Log.step("QQMusic version: ${getPackageVersion(packageName)} (${if (is64) "64" else "32"}bit)")
+                Log.step("SDK: ${Build.VERSION.RELEASE}(${Build.VERSION.SDK_INT}); Phone: ${Build.BRAND} ${Build.MODEL}")
+                Log.step("Config: ${sPrefs.all}")
 
                 preloadProxyClasses()
                 startHook(allHooks())
@@ -111,7 +112,7 @@ class XposedInit : XposedModule() {
                 }
             }
         }
-        Log.d("已挂 Instrumentation#callApplicationOnCreate")
+        Log.step("已挂 Instrumentation#callApplicationOnCreate")
     } catch (t: Throwable) {
         Log.e("挂 callApplicationOnCreate 失败")
         Log.e(t)
@@ -128,7 +129,7 @@ class XposedInit : XposedModule() {
             .getDeclaredMethod("onResume")
             .apply { isAccessible = true }
             .hookAfter { param -> (param.thisObject as? android.app.Activity)?.let(HookEnv::recordActivity) }
-        Log.d("已挂 Activity#onResume（用于定位模块设置面板的宿主窗口）")
+        Log.step("已挂 Activity#onResume（用于定位模块设置面板的宿主窗口）")
     }.onFailure { Log.w("挂 Activity#onResume 失败：${it.message}") }
 
     private fun allHooks(): List<BaseHook> {
@@ -202,7 +203,7 @@ class XposedInit : XposedModule() {
                     if (param.args.isNotEmpty()) param.args[0] = 0
                 }
         }.onFailure {
-            Log.d("禁用 Tinker 失败（可能没有 Tinker）：${it.message}")
+            Log.step("禁用 Tinker 失败（可能没有 Tinker）：${it.message}")
         }
     }
 

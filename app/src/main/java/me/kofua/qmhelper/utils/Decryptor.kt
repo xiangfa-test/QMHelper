@@ -148,10 +148,10 @@ object Decryptor {
             return false
         }
         if (CoverArt.attach(dest, src.absolutePath, container)) {
-            Log.d("封面已写入：${dest.name}")
+            Log.done("封面已写入：${dest.name}")
         }
         scanFile(dest)
-        Log.d("解密完成：${src.name} -> ${dest.absolutePath}（${dest.length()} 字节）")
+        Log.done("解密完成：${src.name} -> ${dest.absolutePath}（${dest.length()} 字节）")
         return true
     }
 
@@ -276,7 +276,7 @@ object Decryptor {
         RandomAccessFile(file, "r").use { it.readFully(head) }
         val hit = detectContainer(head) ?: return null
         if (hit.second > 0) {
-            Log.w("解密产物开头有 ${hit.second} 字节杂质，已裁掉")
+            Log.step("解密产物开头有 ${hit.second} 字节杂质，已裁掉")
             trimHead(file, hit.second)
         }
         return hit.first

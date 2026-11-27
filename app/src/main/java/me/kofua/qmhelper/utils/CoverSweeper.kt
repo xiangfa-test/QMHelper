@@ -41,7 +41,7 @@ object CoverSweeper {
 
         val hooked = installDownloadHooks()
         if (hooked) {
-            Log.d("补封面：已挂下载完成回调")
+            Log.done("补封面：已挂下载完成回调")
         } else {
             Log.w("补封面：没挂上下载回调，退回每 ${POLL_INTERVAL_MS / 1000}s 轮询")
         }
@@ -95,7 +95,7 @@ object CoverSweeper {
             for (file in plainSongs()) {
                 if (attach(file)) handled++
             }
-            if (handled > 0) Log.d("补封面（$reason）：处理了 $handled 个文件")
+            if (handled > 0) Log.done("补封面（$reason）：处理了 $handled 个文件")
         } catch (t: Throwable) {
             Log.w("补封面（$reason）异常：${t.message}")
         } finally {
@@ -125,7 +125,7 @@ object CoverSweeper {
             return false
         }
         remember("${file.absolutePath}|${file.length()}|${file.lastModified()}")
-        Log.d("补封面：已写入 ${file.name}")
+        Log.done("补封面：已写入 ${file.name}")
         return true
     }
 
