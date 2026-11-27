@@ -2,5 +2,11 @@
 #
 # minApiVersion=101 —— 入口用的生命周期回调（onPackageReady 等）从 101 就有；
 # targetApiVersion=102 —— 以 API 102 的语义编译（链式 hook、ExceptionMode 等）。
+#
+# ⚠️ 注意：模块名和模块描述不在这个文件里。API 101+ 的框架读的是 AndroidManifest 的
+#   android:label      → 模块名（@string/app_name）
+#   android:description → 模块描述（@string/xposed_description）
+# 这两行属性一旦漏掉，LSPosed 里模块简介就是空的。
+
 minApiVersion=101
 targetApiVersion=102

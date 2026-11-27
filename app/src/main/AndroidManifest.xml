@@ -10,8 +10,11 @@
         </intent>
     </queries>
 
+    <!-- 模块名 = android:label，模块描述 = android:description（libxposed API 101+ 靠这两个
+         资源取模块信息；旧的 xposeddescription meta-data 仅作老框架兜底）。 -->
     <application
         android:allowBackup="true"
+        android:description="@string/xposed_description"
         android:fullBackupContent="true"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="@string/app_name"
