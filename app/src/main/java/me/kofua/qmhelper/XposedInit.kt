@@ -93,11 +93,16 @@ class XposedInit : XposedModule() {
                 preloadProxyClasses()
                 startHook(allHooks())
             } else {
-                // 子进程只装锁屏开关的读写闸门。
+                // 子进程：锁屏开关的读写闸门 + eKey 采集（播放/下载都发生在这里）。
                 try {
                     LockScreenHook.hookInChildProcess()
                 } catch (t: Throwable) {
                     Log.w("子进程装锁屏 hook 失败：${t.message}")
+                }
+                try {
+                    EKeyHook.hook()
+                } catch (t: Throwable) {
+                    Log.w("子进程装 eKey 采集失败：${t.message}")
                 }
             }
         }
@@ -135,6 +140,7 @@ class XposedInit : XposedModule() {
             SettingsHook,
             SplashHook,
             LockScreenHook,
+            EKeyHook,
             HomeTopTabHook,
             HomePageHook,
             CgiHook,
