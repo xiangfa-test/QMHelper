@@ -17,6 +17,11 @@
 - 普通每日签到和会员星动福利站自动签到
 - 模块配置的 XML 导入与导出
 
+## Telegram 频道
+
+- 原作者频道 [@bb_show](https://t.me/bb_show)
+- 维护者频道 [@xiangfa_channel](https://t.me/xiangfa_channel) 和 [@onelazyfish](https://t.me/onelazyfish)
+
 ## 许可证
 
 [GNU General Public License v3.0](LICENSE)

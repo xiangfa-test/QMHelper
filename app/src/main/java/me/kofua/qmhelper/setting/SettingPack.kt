@@ -15,9 +15,11 @@ import kotlinx.coroutines.withContext
 import me.kofua.qmhelper.BuildConfig
 import me.kofua.qmhelper.R
 import me.kofua.qmhelper.hook.HomePageHook
+import me.kofua.qmhelper.hookInfo
 import me.kofua.qmhelper.utils.*
 import org.json.JSONArray
 import java.io.File
+import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.system.exitProcess
 
@@ -266,7 +268,7 @@ class SettingPack {
         ) {
             onVersionClicked()
         }?.let { add(it) }
-        val latestVer = sCaches.getString("latest_version", "")
+        val latestVer = sCaches.getString("fork_latest_version", "")
         Setting.button(
             R.string.prefs_check_update_title,
             rightDesc = if (!latestVer.isNullOrEmpty()) R.string.found_update else null
@@ -475,37 +477,60 @@ class SettingPack {
     }
 
     fun checkUpdate(dialog: Boolean, force: Boolean = false) = mainScope.launch(Dispatchers.IO) {
-        val lastCheckTime = sCaches.getLong("last_check_update_time", 0L)
+        val lastCheckTime = sCaches.getLong("fork_last_check_update_time", 0L)
         if (!force && System.currentTimeMillis() - lastCheckTime < 10 * 60 * 1000)
             return@launch
-        val json = URL(string(R.string.releases_url))
-            .runCatchingOrNull { readText() } ?: run {
+        val jsonArray = runCatching {
+            val source = URL(string(R.string.releases_url))
+            val response = readGitHubRelease(source) { connection ->
+                check(connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    "HTTP ${connection.responseCode}"
+                }
+                connection.inputStream.bufferedReader().use { it.readText() }
+            }
+            JSONArray(response)
+        }.recoverCatching {
+            Log.w("GitHub Releases API 请求失败：${it.message}")
+            val latest = URL(string(R.string.latest_release_url))
+            readGitHubRelease(latest) { connection ->
+                connection.instanceFollowRedirects = false
+                val location = connection.getHeaderField("Location")
+                val tag = location?.let { target ->
+                    val uri = URL(latest, target)
+                    uri.path.removePrefix("/xiangfa-test/QMHelper/releases/tag/")
+                        .takeIf {
+                            uri.host == latest.host &&
+                                uri.path.startsWith("/xiangfa-test/QMHelper/releases/tag/") &&
+                                parseReleaseVersion(it.removePrefix("v")) != null
+                        }
+                }
+                checkNotNull(tag) { "GitHub 最新发布跳转不可用（HTTP ${connection.responseCode}）" }
+                JSONArray().put(org.json.JSONObject().put("tag_name", tag))
+            }
+        }.getOrElse {
+            Log.w(it.message ?: "检查更新失败")
             if (dialog) BannerTips.error(R.string.check_update_failed)
             return@launch
         }
-        val jsonArray = json.runCatchingOrNull { JSONArray(this) } ?: run {
-            if (dialog) BannerTips.error(R.string.check_update_failed)
-            return@launch
-        }
-        sCaches.edit { putLong("last_check_update_time", System.currentTimeMillis()) }
+        sCaches.edit { putLong("fork_last_check_update_time", System.currentTimeMillis()) }
         var latestVer = ""
         var latestVerTag = ""
         var changelog = ""
         for (result in jsonArray) {
-            val tagName = result.optString("tag_name").takeIf {
-                it.startsWith("v")
-            } ?: continue
-            val name = result.optString("name")
-            if (name.isNotEmpty() && BuildConfig.VERSION_NAME != name) {
-                latestVer = name
+            if (result.optBoolean("draft") || result.optBoolean("prerelease")) continue
+            val tagName = result.optString("tag_name")
+            val version = tagName.removePrefix("v")
+            val latest = parseReleaseVersion(version) ?: continue
+            val current = parseReleaseVersion(BuildConfig.VERSION_NAME) ?: break
+            if (compareValuesBy(latest, current, { it.first }, { it.second }, { it.third }) > 0) {
+                latestVer = version
                 latestVerTag = tagName
-                changelog = result.optString("body")
-                    .substringAfterLast("更新日志").trim()
+                changelog = result.optString("body").substringAfterLast("更新日志").trim()
+                break
             }
-            break
         }
         if (latestVer.isNotEmpty()) {
-            sCaches.edit { putString("latest_version", latestVer) }
+            sCaches.edit { putString("fork_latest_version", latestVer) }
             if (!dialog) return@launch
             withContext(Dispatchers.Main) {
                 activity?.showMessageDialog(
@@ -519,7 +544,7 @@ class SettingPack {
                 }
             }
         } else {
-            sCaches.edit { remove("latest_version") }
+            sCaches.edit { remove("fork_latest_version") }
             if (!dialog) return@launch
             BannerTips.success(R.string.no_update)
         }
@@ -536,14 +561,61 @@ class SettingPack {
         }
     }
 
-    private fun onAuthorClicked() {
-        val uri = string(R.string.repo_url).toUri()
-        activity?.startActivity(Intent(Intent.ACTION_VIEW, uri))
+    private inline fun <T> readGitHubRelease(url: URL, read: (HttpURLConnection) -> T): T {
+        val request = url.openConnection() as HttpURLConnection
+        return try {
+            request.connectTimeout = 8_000
+            request.readTimeout = 8_000
+            request.setRequestProperty("User-Agent", "QMHelper/${BuildConfig.VERSION_NAME}")
+            read(request)
+        } finally {
+            request.disconnect()
+        }
     }
 
-    private fun onTGChannelClicked() {
-        val uri = string(R.string.tg_url).toUri()
-        activity?.startActivity(Intent(Intent.ACTION_VIEW, uri))
+    private fun parseReleaseVersion(version: String): Triple<Int, Int, Int>? {
+        val parts = version.split('.').map { it.toIntOrNull() ?: return null }
+        if (parts.size != 3 || parts.any { it < 0 }) return null
+        return Triple(parts[0], parts[1], parts[2])
+    }
+
+    private fun onAuthorClicked() = showLinks(
+        R.string.prefs_author_title,
+        R.string.author_original to R.string.repo_url,
+        R.string.author_maintainer to R.string.maintainer_repo_url,
+    )
+
+    private fun onTGChannelClicked() = showLinks(
+        R.string.prefs_tg_channel_title,
+        R.string.tg_original_channel to R.string.tg_url,
+        R.string.tg_maintainer_channel to R.string.tg_maintainer_url,
+        R.string.tg_maintainer_second_channel to R.string.tg_maintainer_second_url,
+    )
+
+    private fun showLinks(title: Int, vararg links: Pair<Int, Int>) {
+        val host = activity ?: return
+        fun openLink(url: Int) {
+            try {
+                host.startActivity(Intent(Intent.ACTION_VIEW, string(url).toUri()))
+            } catch (_: ActivityNotFoundException) {
+                BannerTips.error(R.string.jump_failed)
+            }
+        }
+        val settings = links.map { (label, url) ->
+            Setting.button(string(label)) { openLink(url) }
+        }
+        val pageTitle = string(title)
+        if (NativeSettingsPage.openInHost(
+                host, hookInfo.appStarterActivity.addSecondFragment, pageTitle, settings
+            )
+        ) return
+        AlertDialog.Builder(host, themeIdForDialog)
+            .setTitle(pageTitle)
+            .setItems(links.map { string(it.first) }.toTypedArray()) { _, index ->
+                openLink(links[index].second)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun onPurifySearchClicked() {

@@ -57,14 +57,23 @@
     <string name="no_update">暂无更新</string>
     <string name="update_now">立即更新</string>
     <string name="check_update_failed">更新检查失败</string>
-    <string name="releases_url" translatable="false">https://api.github.com/repos/zjns/QMHelper/releases</string>
-    <string name="update_url" translatable="false">https://github.com/zjns/QMHelper/releases/tag/%1$s</string>
+    <string name="releases_url" translatable="false">https://api.github.com/repos/xiangfa-test/QMHelper/releases</string>
+    <string name="latest_release_url" translatable="false">https://github.com/xiangfa-test/QMHelper/releases/latest</string>
+    <string name="update_url" translatable="false">https://github.com/xiangfa-test/QMHelper/releases/tag/%1$s</string>
     <string name="prefs_author_title">作者</string>
-    <string name="prefs_author_summary" translatable="false">Kofua</string>
+    <string name="prefs_author_summary">原作者与维护者</string>
     <string name="repo_url" translatable="false">https://github.com/zjns/QMHelper</string>
     <string name="prefs_tg_channel_title">TG频道</string>
-    <string name="prefs_tg_channel_summary">点击加入TG频道</string>
+    <string name="prefs_tg_channel_summary">查看原作者与维护者的频道</string>
     <string name="tg_url" translatable="false">https://t.me/bb_show</string>
+    <string name="author_original">原作者 · Kofua（zjns）</string>
+    <string name="author_maintainer">维护者 · xiangfa-test</string>
+    <string name="maintainer_repo_url" translatable="false">https://github.com/xiangfa-test/QMHelper</string>
+    <string name="tg_original_channel">原作者频道 · @bb_show</string>
+    <string name="tg_maintainer_channel">维护者频道 · @xiangfa_channel</string>
+    <string name="tg_maintainer_second_channel">维护者频道 · @onelazyfish</string>
+    <string name="tg_maintainer_url" translatable="false">https://t.me/xiangfa_channel</string>
+    <string name="tg_maintainer_second_url" translatable="false">https://t.me/onelazyfish</string>
     <string name="prefs_block_live_title">移除首页直播版块</string>
     <string name="prefs_purify_search_title">净化搜索</string>
     <string name="prefs_hide_ad_bar_title">隐藏推广横条</string>

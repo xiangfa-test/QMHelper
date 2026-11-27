@@ -32,10 +32,12 @@ import java.lang.reflect.Method
  */
 fun Class<*>.proxy(
     vararg onlyMethods: String,
+    markerInterface: Class<*>? = null,
 ): Class<*> = ProxyBuilder.forClass(this)
     .parentClassLoader(classLoader)
     .dexCache(currentContext.getDir("qmhelper_dx", Context.MODE_PRIVATE))
     .apply {
+        markerInterface?.let { implementing(it) }
         if (onlyMethods.isNotEmpty())
             onlyMethods(onlyMethods.map { m ->
                 this@proxy.findMethod(deep = true) { it.name == m }

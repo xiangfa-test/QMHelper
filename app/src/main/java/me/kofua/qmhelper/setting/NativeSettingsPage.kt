@@ -28,6 +28,7 @@ object NativeSettingsPage {
     )
 
     private var proxies: Proxies? = null
+    private var linksFragmentClass: Class<*>? = null
     private val providerHandler = ThreadLocal<InvocationHandler>()
     private val packHandler = ThreadLocal<InvocationHandler>()
     private val fragmentHandler = ThreadLocal<InvocationHandler>()
@@ -40,17 +41,24 @@ object NativeSettingsPage {
      * @param addSecondFragment 宿主的打开方法（`BaseFragmentActivity#addSecondFragment`）
      * @return true = 已走原生通道；false = 框架不可用（调用方退回 Dialog 兜底）
      */
-    fun openInHost(activity: Activity, addSecondFragment: me.kofua.qmhelper.data.Method): Boolean {
+    fun openInHost(
+        activity: Activity,
+        addSecondFragment: me.kofua.qmhelper.data.Method,
+        title: String = PAGE_TITLE,
+        settings: List<Setting>? = null,
+    ): Boolean {
         if (!isAvailable()) return false
         return runCatching {
-            val (fragClass, packConstructor, providerConstructor, eventClass) =
+            val (mainFragmentClass, packConstructor, providerConstructor, eventClass) =
                 ensureProxies() ?: return false
+            val fragClass = if (settings == null) mainFragmentClass else ensureLinksFragment()
             val nativeUi = hookInfo.setting.nativeUi
             var eventTarget: Any? = null
             val event = Proxy.newProxyInstance(classLoader, arrayOf(eventClass)) { _, method, args ->
                 eventTarget?.let { method.invoke(it, *(args ?: emptyArray())) }
             }
-            val providers = buildProviders(activity, event, providerConstructor)
+            val settingsToDisplay = settings ?: SettingPack().apply { this.activity = activity }.getSettings()
+            val providers = buildProviders(activity, event, providerConstructor, settingsToDisplay)
             check(providers.isNotEmpty()) { "未能构建任何原生设置项" }
 
             // 先验证宿主 Pack 构造成功，再导航，失败时调用方仍可打开 Dialog。
@@ -65,7 +73,7 @@ object NativeSettingsPage {
 
             withHandler(fragmentHandler, InvocationHandler { fragment, method, _ ->
                 when (method.name) {
-                    nativeUi.titleMethod -> PAGE_TITLE
+                    nativeUi.titleMethod -> title
                     nativeUi.settingPackageMethod -> {
                         if (eventClass.isInstance(fragment)) eventTarget = fragment
                         pack
@@ -129,6 +137,19 @@ object NativeSettingsPage {
         Proxies(fragClass, packConstructor, providerConstructor, eventClass).also { proxies = it }
     }
 
+    private fun ensureLinksFragment(): Class<*> = synchronized(this) {
+        linksFragmentClass?.let { return@synchronized it }
+        val nativeUi = hookInfo.setting.nativeUi
+        val base = checkNotNull(nativeUi.fragmentClass.from(classLoader))
+        // QQ 音乐会按 Fragment 类名去重。使用系统标记接口生成独立的代理类。
+        val linksClass = base.proxy(
+            nativeUi.titleMethod, nativeUi.settingPackageMethod,
+            markerInterface = java.io.Serializable::class.java,
+        )
+        installHandler(linksClass.getDeclaredConstructor(), fragmentHandler)
+        linksClass.also { linksFragmentClass = it }
+    }
+
     private fun installHandler(constructor: Constructor<*>, slot: ThreadLocal<InvocationHandler>) =
         checkNotNull(installHook(constructor, before = true) { param ->
             slot.get()?.let { param.thisObject.invocationHandler(it) }
@@ -152,10 +173,10 @@ object NativeSettingsPage {
         activity: Activity,
         event: Any,
         constructor: Constructor<*>,
+        settings: List<Setting>,
     ): CopyOnWriteArrayList<Any> {
         val list = CopyOnWriteArrayList<Any>()
-        val settingPack = SettingPack().apply { this.activity = activity }
-        for (spec in settingPack.getSettings()) {
+        for (spec in settings) {
             val hostSetting = spec.toHostSetting(activity) ?: continue
             list.add(withHandler(providerHandler, InvocationHandler { _, _, _ -> hostSetting }) {
                 constructor.newInstance(activity, event)
