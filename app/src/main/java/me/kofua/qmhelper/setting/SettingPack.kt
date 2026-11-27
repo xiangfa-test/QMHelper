@@ -186,6 +186,12 @@ class SettingPack {
             R.string.prefs_hide_song_list_guide_title,
             R.string.prefs_hide_song_list_guide_summary
         )?.also { add(it) }
+        Setting.switch(
+            "disable_lock_screen",
+            R.string.prefs_disable_lock_screen_title,
+            R.string.prefs_disable_lock_screen_summary,
+            defValue = true,
+        )?.also { add(it) }
 
         Setting.category(R.string.prefs_category_misc)
             ?.let { add(it) }

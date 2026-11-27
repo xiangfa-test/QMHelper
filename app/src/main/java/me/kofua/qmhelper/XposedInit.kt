@@ -92,6 +92,13 @@ class XposedInit : XposedModule() {
 
                 preloadProxyClasses()
                 startHook(allHooks())
+            } else {
+                // 子进程只装锁屏开关的读写闸门。
+                try {
+                    LockScreenHook.hookInChildProcess()
+                } catch (t: Throwable) {
+                    Log.w("子进程装锁屏 hook 失败：${t.message}")
+                }
             }
         }
         Log.d("已挂 Instrumentation#callApplicationOnCreate")
@@ -127,6 +134,7 @@ class XposedInit : XposedModule() {
         val normalHooks = listOf(
             SettingsHook,
             SplashHook,
+            LockScreenHook,
             HomeTopTabHook,
             HomePageHook,
             CgiHook,
