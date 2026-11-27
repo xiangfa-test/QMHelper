@@ -8,6 +8,7 @@ import me.kofua.qmhelper.from
 import me.kofua.qmhelper.hookInfo
 import me.kofua.qmhelper.qmPackage
 import me.kofua.qmhelper.utils.*
+import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -22,24 +23,28 @@ import java.util.concurrent.CopyOnWriteArrayList
  *   settingPackage():BaseSettingPackage  抽象 —— 条目来源
  * settings.base.BaseSettingPackage（抽象类）
  *   <init>(Context, SettingEvent, Bundle)
+ *     ⚠️ 构造器内部就会回调 createSettingProvider() 并强校验：
+ *        列表为空/null 直接抛 IllegalArgumentException("settingProviders == null")
  *   createSettingProvider():CopyOnWriteArrayList
  * settings.base.SettingProvider（接口） getSetting():Setting / shouldShown()…
  * settings.base.SettingEvent（接口）    包构造器要的事件回调
  * settings.view.SettingView$d（接口）   开关回调 isSwitchOn()/onSwitchStatusChange(Z)
  * ```
  *
- * ## 实例化手法（关键，踩过坑）
+ * ## handler 挂载时机（两次实机崩溃换来的教训）
  *
- * `ProxyBuilder.setInvocationHandler` 只接受代理**实例**，挂在 Class 上会抛
- * "Not a valid proxy instance"。而页面由宿主通过 `addSecondFragment(Class)` 反射实例化，
- * 我们拿不到"创建后"的时机 —— 所以用上游 1.1.4 的老手法：
+ * `ProxyBuilder.setInvocationHandler` 只接受代理实例，且 dexmaker 生成的构造器体
+ * 只是 `super(...)` —— handler 字段不会被自动设置。
  *
- * 1. hook 基类构造器（before）；
- * 2. 调 `addSecondFragment(我们的代理类)`，宿主反射 new 的瞬间被钩住；
- * 3. 判断 `thisObject` 是不是我们的代理类，是就当场 `setInvocationHandler`；
- * 4. unhook。
+ * - 挂在 Class 上 → "Not a valid proxy instance"；
+ * - new() 之后再挂 → 对 Fragment 勉强够（title/settingPackage 在 createView 才调），
+ *   但对 Pack 是死路：**super 构造器执行期间就回调 createSettingProvider()**，
+ *   那时 handler 还没挂，虚拟调用落空返回 null → 构造器抛异常 → settingPackage()
+ *   返回 null → 宿主 initRecyclerView 里 onCreate() NPE → 崩。
  *
- * Pack 实例由 fragment 的 `settingPackage()` 回调自己创建，创建后立刻挂实例 handler。
+ * 唯一正确姿势（上游 1.1.4 同款）：`hookBefore` 挂到**代理类自己的构造器**上，
+ * 在构造器体（super 调用）执行之前把 handler 写进实例的 `$__handler` 字段。
+ * 钩子常驻不 unhook —— 只对这两个动态类的实例生效，代价可忽略。
  */
 object NativeSettingsPage {
 
@@ -53,6 +58,12 @@ object NativeSettingsPage {
     private var fragProxyClass: Class<*>? = null
     @Volatile
     private var packProxyClass: Class<*>? = null
+    @Volatile
+    private var hooksInstalled = false
+
+    /** 打开页面时所在 Activity；Pack/Provider 构造 Setting 时用作 context。 */
+    @Volatile
+    private var hostActivity: Activity? = null
 
     fun isAvailable(): Boolean = hookInfo.setting.nativeUi.fragmentClass.isNotEmpty()
 
@@ -64,44 +75,41 @@ object NativeSettingsPage {
      */
     fun openInHost(activity: Activity, addSecondFragment: me.kofua.qmhelper.data.Method): Boolean {
         if (!isAvailable()) return false
-        val (fragClass, _) = ensureProxyClasses() ?: return false
+        val (fragClass, packClass) = ensureProxyClasses() ?: return false
         return runCatching {
-            val context = activity
             val nativeUi = hookInfo.setting.nativeUi
+            hostActivity = activity
 
             // Pack handler：createSettingProvider → 模块条目列表。
-            val packHandler = java.lang.reflect.InvocationHandler { _, method, _ ->
+            // Pack 构造器（super）执行期间就会调它并校验非空。
+            val packHandler = InvocationHandler { _, method, _ ->
                 when (method.name) {
-                    nativeUi.createSettingProviderMethod -> buildProviders(context)
+                    nativeUi.createSettingProviderMethod -> buildProviders()
                     else -> null
                 }
             }
-            val packClass = packProxyClass ?: return false
-
             // Fragment handler：title / settingPackage。
-            // settingPackage 里当场 new Pack 实例并挂实例级 handler。
-            val fragHandler = java.lang.reflect.InvocationHandler { _, method, _ ->
+            val fragHandler = InvocationHandler { _, method, _ ->
                 when (method.name) {
                     nativeUi.titleMethod -> PAGE_TITLE
-                    nativeUi.settingPackageMethod -> newPackInstance(packClass, context, packHandler)
+                    nativeUi.settingPackageMethod -> newPackInstance(packClass, activity)
                     else -> null
                 }
             }
 
-            // 构造器钩子：宿主 new 我们代理类的瞬间挂 handler（上游 1.1.4 同款手法）。
-            // 构造器钩子挂在**代理子类**自己身上（而不是基类）：dexmaker 生成的类由模块
-            // InMemoryDexClassLoader 加载，基类构造器 hook 在某些框架版本下拦不到子类的
-            // super() 链；直接 hook 子类构造器最直接、必触发。
-            // 另外不 unhook：条目页构造完成后这条钩子就闲置了，只做一次类名/代价可忽略。
-            val unhooks = fragClass.hookBeforeAllConstructors { param ->
+            // 构造器 hookBefore：构造器体（super 调用）执行前把 handler 写进实例。
+            // 常驻不 unhook —— 只对这两个动态类的实例生效。
+            packClass.hookBeforeAllConstructors { param ->
                 val inst = param.thisObject ?: return@hookBeforeAllConstructors
-                Log.d("原生设置页：代理 Fragment 构造触发，挂 handler")
-                runCatching { inst.invocationHandler(fragHandler) }
-                    .onFailure { Log.e("原生设置页：handler 挂载失败"); Log.e(it) }
+                runCatching { inst.invocationHandler(packHandler) }
+                    .onFailure { Log.e("原生设置页：Pack handler 预挂载失败"); Log.e(it) }
             }
-            // ⚠️ 不能在 callMethod 返回后立刻 unhook：addSecondFragment 是把 Fragment 事务
-            // post 到主线程队列，真正 new 出代理实例发生在返回之后。构造器钩子只对
-            // "类名匹配的实例"生效，留着不碍事（页面构造完就没用了，进程内常驻代价可忽略）。
+            fragClass.hookBeforeAllConstructors { param ->
+                val inst = param.thisObject ?: return@hookBeforeAllConstructors
+                runCatching { inst.invocationHandler(fragHandler) }
+                    .onFailure { Log.e("原生设置页：Fragment handler 预挂载失败"); Log.e(it) }
+            }
+
             activity.callMethod(addSecondFragment.name, fragClass, null)
             Log.d("模块设置：已打开原生设置页（${fragClass.name}）")
             true
@@ -111,13 +119,14 @@ object NativeSettingsPage {
         }.getOrDefault(false)
     }
 
-    /** 供 Dialog 兜底前的可用性判断 + 入口点击的退路。 */
+    /** 开关回调代理（SettingView$d 接口）：读/写配置。 */
     fun switchListenerProxy(isSwitchOn: () -> Boolean, onChange: (Boolean) -> Unit): Any? {
         val viewD = qmPackage.switchListenerClass ?: return null
         return Proxy.newProxyInstance(classLoader, arrayOf(viewD)) { _, method, args ->
             when (method.name) {
                 hookInfo.setting.switchListener.isSwitchOn.name -> isSwitchOn()
-                hookInfo.setting.switchListener.onSwitchStatusChange.name -> onChange(args?.getOrNull(0) as? Boolean ?: false)
+                hookInfo.setting.switchListener.onSwitchStatusChange.name ->
+                    onChange(args?.getOrNull(0) as? Boolean ?: false)
             }
             null
         }
@@ -146,34 +155,29 @@ object NativeSettingsPage {
         }
     }
 
-    /** new 一个 Pack 实例并挂上实例级 handler。 */
-    private fun newPackInstance(
-        packClass: Class<*>,
-        context: Context,
-        handler: java.lang.reflect.InvocationHandler,
-    ): Any? {
+    /** new 一个 Pack 实例。handler 已由常驻构造器钩子预挂载。 */
+    private fun newPackInstance(packClass: Class<*>, context: Context): Any? {
         val eventClass = EVENT_CLASS.from(classLoader) ?: run {
             Log.e("原生设置页：SettingEvent 接口加载失败")
             return null
         }
         val event = Proxy.newProxyInstance(classLoader, arrayOf(eventClass)) { _, _, _ -> null }
-        val instance: Any? = try {
-            packClass.new(context, event, Bundle())
+        return try {
+            val inst = packClass.new(context, event, Bundle())
+            Log.d("原生设置页：Pack 构造成功")
+            inst
         } catch (t: Throwable) {
             Log.e("原生设置页：Pack 构造失败（context=${context.javaClass.name}）")
             Log.e(t)
             null
-        } ?: return null
-        runCatching { instance!!.invocationHandler(handler) }
-            .onFailure { Log.e("原生设置页：Pack handler 挂载失败"); Log.e(it) }
-        return instance
-        return instance
+        }
     }
 
     /** 本页条目：每条规格包成一个 SettingProvider 动态代理。 */
-    private fun buildProviders(context: Context): CopyOnWriteArrayList<Any?> {
+    private fun buildProviders(): CopyOnWriteArrayList<Any?> {
         val list = CopyOnWriteArrayList<Any?>()
         val providerInterface = PROVIDER_CLASS.from(classLoader) ?: return list
+        val context: android.content.Context = hostActivity ?: currentApplication() ?: return list
         val specs = runCatching { SettingPack().getSettings() }
             .onFailure { Log.e("原生设置页：读取规格失败"); Log.e(it) }
             .getOrDefault(emptyList())

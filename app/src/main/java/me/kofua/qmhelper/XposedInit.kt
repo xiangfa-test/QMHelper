@@ -115,7 +115,10 @@ class XposedInit : XposedModule() {
     }.onFailure { Log.w("挂 Activity#onResume 失败：${it.message}") }
 
     private fun allHooks(): List<BaseHook> {
-        val debugHooks = if (BuildConfig.DEBUG) {
+        // SSLHook 全局劫持系统 TrustManagerFactory / SSLContext —— 21.x 播放页起播后
+        // 后台 TLS 线程会抛未捕获异常直接杀进程（debug 包踩过）。DebugHook 全局替换
+        // MLog 且跳过原方法体，同样危险。两者改为显式开关，默认关闭。
+        val debugHooks = if (BuildConfig.DEBUG && sPrefs.getBoolean("enable_debug_hooks", false)) {
             listOf(SSLHook, DebugHook)
         } else listOf()
         val buildInHooks = if (isBuiltIn) {

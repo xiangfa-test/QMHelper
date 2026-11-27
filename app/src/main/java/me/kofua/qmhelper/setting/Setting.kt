@@ -181,6 +181,19 @@ class Setting {
         builder.callMethod("type", hostType)
         builder.callMethod("title", title ?: "")
         rightDesc?.let { runCatching { builder.callMethod("subRightDesc", it) } }
+        if (type == Type.SWITCH) {
+            // 原生页的开关：挂宿主 SettingView$d 代理（读/写 sPrefs）
+            val on = isSwitchOn
+            val changed = onSwitchChanged
+            if (on != null && changed != null) {
+                NativeSettingsPage.switchListenerProxy(
+                    { runCatching { on() }.getOrDefault(false) },
+                    { changed(it) }
+                )?.let { listener ->
+                    runCatching { builder.callMethod("switcher", listener) }
+                }
+            }
+        }
         clickListener?.let { runCatching { builder.callMethod("click", it) } }
         builder.callMethod("build")
     }
