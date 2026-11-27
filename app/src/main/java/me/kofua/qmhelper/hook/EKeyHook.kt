@@ -6,7 +6,6 @@ import me.kofua.qmhelper.utils.from
 import me.kofua.qmhelper.utils.hookAfterMethod
 import me.kofua.qmhelper.utils.hookBeforeAllConstructors
 import me.kofua.qmhelper.utils.hookBeforeMethod
-import java.lang.reflect.Modifier
 
 /**
  * 采集宿主的 eKey，交给 [EKeyStore] 保管。
@@ -15,6 +14,9 @@ import java.lang.reflect.Modifier
  *  - `EKeyDecryptor.<init>(String eKey)` —— 当前曲目用到的 key；
  *  - `EKeyDecryptor$a#a(src, dest, eKey)` —— 文件路径与 key 的对应关系；
  *  - `AudioStreamFileEKeyTable#query/insertOrUpdate` —— 宿主自己的锁定表。
+ *
+ * 只挂方法/构造器，**不读宿主的静态字段**：一读就会触发 `EKeyDecryptor.<clinit>`，
+ * 而那个初始化依赖 native 环境，提前触发会直接抛异常。
  */
 object EKeyHook : BaseHook {
 
@@ -26,11 +28,12 @@ object EKeyHook : BaseHook {
         "com.tencent.qqmusicplayerprocess.audio.playermanager.AudioStreamFileEKeyTable"
 
     override fun hook() {
-        hookDecryptor()
+        hookDecryptorCtor()
+        hookDecryptFile()
         hookEKeyTable()
     }
 
-    private fun hookDecryptor() {
+    private fun hookDecryptorCtor() {
         val decryptor = CLS_DECRYPTOR.from(classLoader)
         if (decryptor == null) {
             Log.w("eKey 采集：找不到 EKeyDecryptor")
@@ -43,14 +46,16 @@ object EKeyHook : BaseHook {
         } catch (t: Throwable) {
             Log.w("eKey 采集：构造器 hook 失败 ${t.message}")
         }
+    }
 
+    private fun hookDecryptFile() {
+        val companion = CLS_COMPANION.from(classLoader)
+        if (companion == null) {
+            Log.w("eKey 采集：找不到 EKeyDecryptor\$a")
+            return
+        }
         try {
-            val companionClass = CLS_COMPANION.from(classLoader)
-            val companion = decryptor.declaredFields
-                .firstOrNull { Modifier.isStatic(it.modifiers) && it.type == companionClass }
-                ?.apply { isAccessible = true }
-                ?.get(null)
-            companion?.javaClass?.hookBeforeMethod(
+            companion.hookBeforeMethod(
                 "a",
                 String::class.java,
                 String::class.java,
@@ -58,7 +63,6 @@ object EKeyHook : BaseHook {
             ) { param ->
                 EKeyStore.record(param.args[0] as? String, param.args[2] as? String)
             }
-            if (companion == null) Log.w("eKey 采集：拿不到 EKeyDecryptor 伴生对象")
         } catch (t: Throwable) {
             Log.w("eKey 采集：整文件解密入口 hook 失败 ${t.message}")
         }

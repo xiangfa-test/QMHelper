@@ -347,11 +347,13 @@ object Decryptor {
                 ?.mapNotNull { it?.toMockVolume()?.path }
                 ?.forEach { path ->
                     dirs.add(File(path, "qqmusic/song"))
+                    dirs.add(File(path, "Music/qqmusic/song"))
                     dirs.add(File(path, "Android/data/${hostPackageName}/files/qqmusic/song"))
                 }
         }.onFailure { Log.w("读取存储卷失败：${it.message}") }
         val external = Environment.getExternalStorageDirectory()
         dirs.add(File(external, "qqmusic/song"))
+        dirs.add(File(external, "Music/qqmusic/song"))
         dirs.add(File(external, "Android/data/${hostPackageName}/files/qqmusic/song"))
 
         return dirs.filter { it.isDirectory }
