@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.kofua.qmhelper.BuildConfig
 import me.kofua.qmhelper.R
+import me.kofua.qmhelper.hook.HomePageHook
 import me.kofua.qmhelper.utils.*
 import org.json.JSONArray
 import java.io.File
@@ -55,6 +56,12 @@ class SettingPack {
             R.string.prefs_daily_sign_in_summary
         )?.let { add(it) }
 
+        add(Setting.switch(
+            "vip_station_sign_in",
+            R.string.prefs_vip_station_sign_in_title,
+            R.string.prefs_vip_station_sign_in_summary,
+        ))
+
         Setting.category(R.string.prefs_category_purify)
             ?.let { add(it) }
         Setting.switch(
@@ -89,6 +96,13 @@ class SettingPack {
             R.string.prefs_hide_vip_bubble_title,
             R.string.prefs_hide_vip_bubble_summary,
         )?.let { add(it) }
+        if (HomePageHook.supportsMinePullRemoval) {
+            add(Setting.switch(
+                "hide_mine_pull_entrance",
+                R.string.prefs_hide_mine_pull_entrance_title,
+                R.string.prefs_hide_mine_pull_entrance_summary,
+            ))
+        }
         Setting.switch(
             "purify_live_guide",
             R.string.prefs_purify_live_guide_title,
@@ -110,11 +124,6 @@ class SettingPack {
             "hide_ad_bar",
             R.string.prefs_hide_ad_bar_title,
             R.string.prefs_hide_ad_bar_summary,
-        )?.let { add(it) }
-        Setting.switch(
-            "forbid_music_world",
-            R.string.prefs_forbid_music_world_title,
-            R.string.prefs_forbid_music_world_summary,
         )?.let { add(it) }
         Setting.switch(
             "block_bottom_tips",
@@ -253,8 +262,7 @@ class SettingPack {
             ?.let { add(it) }
         Setting.button(
             string(R.string.prefs_version_title),
-            "%s (%s)".format(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
-            arrow = false
+            rightDesc = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
         ) {
             onVersionClicked()
         }?.let { add(it) }
@@ -284,28 +292,38 @@ class SettingPack {
             CODE_EXPORT, CODE_IMPORT -> {
                 val uri = data?.data
                 if (uri == null || resultCode != Activity.RESULT_OK) return
-                val prefsFile = File(currentContext.filesDir, "../shared_prefs/qmhelper.xml")
-                when (requestCode) {
-                    CODE_IMPORT -> runCatchingOrNull {
-                        prefsFile.outputStream().use { o ->
-                            currentContext.contentResolver.openInputStream(uri)
-                                ?.use { it.copyTo(o) }
-                        }
-                        activity?.showMessageDialog(
-                            R.string.tips_title,
-                            R.string.pls_reboot_host,
-                            R.string.yes,
-                            R.string.no
-                        ) {
-                            activity?.let { restartApplication(it) }
+                val importing = requestCode == CODE_IMPORT
+                mainScope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val resolver = currentContext.contentResolver
+                            if (importing) {
+                                checkNotNull(resolver.openInputStream(uri)).use {
+                                    PreferenceBackup.restore(sPrefs, it)
+                                }
+                            } else {
+                                checkNotNull(resolver.openOutputStream(uri, "wt")).use {
+                                    PreferenceBackup.export(sPrefs, it)
+                                }
+                            }
                         }
                     }
-
-                    CODE_EXPORT -> runCatchingOrNull {
-                        prefsFile.inputStream().use {
-                            currentContext.contentResolver.openOutputStream(uri)
-                                ?.use { o -> it.copyTo(o) }
+                    result.onSuccess {
+                        if (importing) {
+                            activity?.showMessageDialog(
+                                R.string.tips_title,
+                                R.string.pls_reboot_host,
+                                R.string.yes,
+                                R.string.no
+                            ) {
+                                activity?.let { restartApplication(it) }
+                            }
+                        } else {
+                            BannerTips.success(R.string.prefs_export_success)
                         }
+                    }.onFailure {
+                        Log.e(it)
+                        BannerTips.error(if (importing) R.string.prefs_import_failed else R.string.prefs_export_failed)
                     }
                 }
             }

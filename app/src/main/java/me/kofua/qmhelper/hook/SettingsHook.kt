@@ -15,11 +15,14 @@ import me.kofua.qmhelper.hookInfo
 import me.kofua.qmhelper.qmPackage
 import me.kofua.qmhelper.setting.Setting
 import me.kofua.qmhelper.setting.SettingPack
+import me.kofua.qmhelper.setting.NativeSettingsPage
 import me.kofua.qmhelper.ui.ModuleSettingsDialog
 import me.kofua.qmhelper.utils.*
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Calendar
+import java.util.TimeZone
 
 object SettingsHook : BaseHook {
     private val purifyRedDots by lazy { sPrefs.getBoolean("purify_red_dots", false) }
@@ -39,6 +42,11 @@ object SettingsHook : BaseHook {
             .format(Date())
 
     override fun hook() {
+        if (sPrefs.getBoolean("vip_station_sign_in", false)) {
+            handler.post(8000L) {
+                mainScope.launch(Dispatchers.IO) { vipStationSignIn() }
+            }
+        }
         hookInfo.appStarterActivity.hookAfterMethod({ doOnCreate }) { param ->
             val activity = param.thisObject as Activity
             activity.addModuleAssets()
@@ -115,6 +123,7 @@ object SettingsHook : BaseHook {
             hookInfo.settingView.hookBeforeMethod({ setLastClickTime }) { it.args[1] = 0L }
 
         installSettingsEntry()
+        hideDrawerShortcuts()
 
         if (purifyMoreItems.contains("创作者中心") && hookInfo.setting.drawerSettingPack.initKolEnter.name.isNotEmpty())
             hookInfo.setting.drawerSettingPack.replaceMethod({ initKolEnter }) { null }
@@ -142,60 +151,61 @@ object SettingsHook : BaseHook {
         }
     }
 
-    /**
-     * 往宿主「我的 → 更多设置」列表里插一条「Q音助手」入口。
-     *
-     * ## 为什么挂"抽屉包的刷新方法"
-     *
-     * 21.0.5.3 的设置页仍然是 Provider 模式：`BaseSettingPackage#settings`（List）是所有
-     * 设置页读的同一份列表，各包（`settings.packages.b/c/d`）负责把 provider 的条目汇总进去。
-     * 老项目（QQMusicPlus）的做法是挂 `packages.b` 的刷新方法，在它把列表拼好之后补一条 ——
-     * 这比"挂 getSettings() 后在宿主遍历时改列表"更安全，也不会在多个页面重复出现。
-     *
-     * 定位用的字符串 `refreshSettingList: FORCE REFRESH` 在 21.0.5.3 上仍然存在
-     * （`settings.packages.b#c()`），随版本变化的风险比类名小。
-     *
-     * ## 为什么不用宿主的 SettingProvider
-     *
-     * 宿主 21.x 的 `SettingProvider` 构造签名变成了 `(Context, SettingEvent)`，
-     * 而 SettingEvent 只有包自己有；我们没法造。直接把 `Setting` 塞进 `settings` 列表即可，
-     * 宿主渲染时只看列表里的 Setting 对象。
-     */
+    /** 只向「我的 → 更多」的宿主设置包添加入口。 */
     private fun installSettingsEntry() {
         val drawerPack = hookInfo.setting.drawerSettingPack
-        var hooked = 0
-        if (drawerPack.refresh.name.isNotEmpty()) {
-            drawerPack.hookAfterMethod({ refresh }) { param ->
-                runCatching { injectSettingsEntry(param.thisObject) }
-                    .onFailure { Log.e("设置入口：注入失败 ${it.message}"); Log.e(it) }
-            }
-            hooked++
-            Log.d("设置入口：已挂抽屉刷新注入点（${drawerPack.refresh.name}）")
+        val drawerClass = drawerPack.clazz.name.from(classLoader) ?: run {
+            Log.w("设置入口：未定位到「更多」设置包")
+            return
         }
-        // 兜底：直接拦 BaseSettingPackage#getSettings()（所有设置页读列表都走它）。
-        // 有些入口路径（比如从搜索/推送深链进来）不经过抽屉包的刷新方法，
-        // 只有这条全量兜底能保证入口一定在。
+
+        fun injectDrawerEntry(host: Any?) {
+            if (host == null || host.javaClass != drawerClass) return
+            runCatching { injectSettingsEntry(host) }
+                .onFailure { Log.e("设置入口：注入失败 ${it.message}"); Log.e(it) }
+        }
+
+        if (drawerPack.refresh.name.isNotEmpty()) {
+            drawerPack.hookAfterMethod({ refresh }) { param -> injectDrawerEntry(param.thisObject) }
+        }
+
+        // 首次读取有时早于刷新。共用方法的兜底也只处理「更多」包。
         val basePackClass = hookInfo.setting.baseSettingPack.clazz.name.ifEmpty {
             "com.tencent.qqmusic.fragment.morefeatures.settings.base.BaseSettingPackage"
         }
-        basePackClass.from(classLoader)?.let { packClass ->
-            val getSettings = packClass.declaredMethods.firstOrNull {
-                it.parameterTypes.isEmpty() && List::class.java.isAssignableFrom(it.returnType)
-            }
-            if (getSettings != null) {
-                packClass.hookAfterMethod(getSettings.name) { param ->
-                    runCatching { injectSettingsEntry(param.thisObject) }
-                        .onFailure { Log.e("设置入口(兜底)：注入失败 ${it.message}"); Log.e(it) }
-                }
-                hooked++
-                Log.d("设置入口：已挂 getSettings 兜底注入点（${packClass.name}#${getSettings.name}）")
+        basePackClass.from(classLoader)?.declaredMethods?.firstOrNull {
+            it.parameterTypes.isEmpty() && List::class.java.isAssignableFrom(it.returnType)
+        }?.let { getSettings ->
+            getSettings.declaringClass.hookAfterMethod(getSettings.name) { param ->
+                injectDrawerEntry(param.thisObject)
             }
         }
-        if (hooked == 0) Log.w("设置入口：两个注入点都没挂上，入口不生效")
     }
 
-    private fun injectSettingsEntry(host: Any?) {
-        host ?: return
+    private fun hideDrawerShortcuts() {
+        val hiddenTitles = purifyMoreItems.filter { it.startsWith("top:") }
+            .map { it.removePrefix("top:") }.toSet()
+        if (hiddenTitles.isEmpty()) return
+
+        val hiddenViews = java.util.WeakHashMap<View, Int>()
+        "com.tencent.qqmusic.fragment.morefeatures.ui.TopEntranceView".from(classLoader)
+            ?.hookBeforeMethod("setData", List::class.java) { param ->
+                val view = param.thisObject as? View ?: return@hookBeforeMethod
+                val entries = param.args[0] as? List<*> ?: return@hookBeforeMethod
+                val visible = entries.filterNot { entry ->
+                    entry?.getObjectFieldOrNullAs<String>("title") in hiddenTitles
+                }
+                if (visible.size != entries.size) param.args[0] = visible
+                if (entries.isNotEmpty() && visible.isEmpty()) {
+                    hiddenViews.putIfAbsent(view, view.visibility)
+                    view.visibility = View.GONE
+                } else if (visible.isNotEmpty()) {
+                    hiddenViews.remove(view)?.let { view.visibility = it }
+                }
+            }
+    }
+
+    private fun injectSettingsEntry(host: Any) {
         val settingsField = host.javaClass.findFieldOrNull("settings") ?: run {
             Log.d("设置入口：宿主包里没有 settings 字段")
             return
@@ -204,10 +214,21 @@ object SettingsHook : BaseHook {
         val settings = settingsField.get(host) as? MutableList<Any?> ?: return
 
         val entryTitle = string(R.string.app_name)
+        val changed = settings.removeAll { entry ->
+            val title = entry?.getObjectFieldOrNullAs<String>("titleText")
+            title != entryTitle && when (title) {
+                "未成年模式" -> "青少年模式" in purifyMoreItems
+                "铃声专区" -> "百变彩铃" in purifyMoreItems
+                else -> title in purifyMoreItems
+            }
+        }
         val exists = settings.any { entry ->
             entry?.getObjectFieldOrNullAs<String>("titleText") == entryTitle
         }
-        if (exists) return
+        if (exists) {
+            if (changed) notifyDrawerChanged(host)
+            return
+        }
 
         val entry = Setting.button(
             title = entryTitle,
@@ -223,7 +244,10 @@ object SettingsHook : BaseHook {
         settings.add(index, entry)
         Log.i("设置入口：已插入「$entryTitle」（当前 ${settings.size} 条）")
 
-        // 列表改完要主动让宿主重建，否则界面还是旧的。
+        notifyDrawerChanged(host)
+    }
+
+    private fun notifyDrawerChanged(host: Any) {
         handler.post {
             runCatching { host.callMethod("notifyEvent", 0) }
                 .onFailure { Log.d("设置入口：触发刷新失败 ${it.message}") }
@@ -238,7 +262,7 @@ object SettingsHook : BaseHook {
             return
         }
         // 首选：Q音 原生设置页（BaseRecyclerSettingFragment 动态子类）。
-        if (me.kofua.qmhelper.setting.NativeSettingsPage.openInHost(
+        if (NativeSettingsPage.openInHost(
                 activity, hookInfo.appStarterActivity.addSecondFragment
             )
         ) return
@@ -246,6 +270,68 @@ object SettingsHook : BaseHook {
         if (!ModuleSettingsDialog.show(activity)) {
             BannerTips.error(R.string.jump_failed)
         }
+    }
+
+    @Synchronized
+    private fun vipStationSignIn() {
+        if (!isLogin()) {
+            Log.i("会员星动福利站：宿主登录状态尚未就绪")
+            return
+        }
+        val account = uin()
+        if (account.isBlank() || account == "0") {
+            Log.i("会员星动福利站：未取得登录账号")
+            return
+        }
+        val date = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"))
+        val month = date.get(Calendar.YEAR) * 100 + date.get(Calendar.MONTH) + 1
+        val day = date.get(Calendar.DAY_OF_MONTH)
+        val dateKey = "$month-$day"
+        val recordKey = "${account}_vip_station_sign_in_record"
+        if (sCaches.getString(recordKey, null) == dateKey) return
+
+        fun request(method: String, params: Map<String, Any> = emptyMap()): org.json.JSONObject? {
+            val response = webJsonPost(
+                "https://u6.y.qq.com/cgi-bin/musics.fcg",
+                "music.vipcgi.RenewalPlaySignInCgi", method, params
+            )?.toJSONObject()?.optJSONObject("req_0") ?: return null
+            val code = response.optInt("code", -1)
+            if (code != 0) {
+                Log.w("会员星动福利站：$method 返回 $code")
+                return null
+            }
+            return response.optJSONObject("data")
+        }
+
+        fun todayStatus(): Int? {
+            val days = request("GetMonthSignInData", mapOf("month" to month))
+                ?.optJSONArray("days") ?: return null
+            return (0 until days.length()).asSequence()
+                .mapNotNull { days.optJSONObject(it) }
+                .firstOrNull { it.optInt("day") == day }
+                ?.optInt("signInStatus", -1)
+        }
+
+        runCatching {
+            when (todayStatus()) {
+                2 -> Log.i("会员星动福利站：今日已签到")
+                1 -> {
+                    if (!isLogin() || uin() != account) return
+                    request("RenewalPlaySignIn") ?: return
+                    if (todayStatus() != 2) {
+                        Log.w("会员星动福利站：签到后未确认今日状态")
+                        return
+                    }
+                    handler.post { BannerTips.success(R.string.vip_station_sign_in_success) }
+                    Log.i("会员星动福利站：今日签到成功")
+                }
+                else -> {
+                    Log.w("会员星动福利站：未能确认今日签到状态")
+                    return
+                }
+            }
+            sCaches.edit { putString(recordKey, dateKey) }
+        }.onFailure { Log.w("会员星动福利站：签到检查失败（${it.javaClass.simpleName}）") }
     }
 
     private fun dailySignIn(check: Boolean = true) {

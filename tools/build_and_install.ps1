@@ -7,39 +7,44 @@
 #     这里直接 tail 那个文件，按模块包名过滤。
 #
 # 用法：
-#   powershell -File tools\build_and_install.ps1                  # 构建 + 装 + 热重载 + 打日志
-#   powershell -File tools\build_and_install.ps1 -SkipBuild        # 只装已有的包
-#   powershell -File tools\build_and_install.ps1 -Release          # 出 release 包（混淆过，体积小）
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File tools\build_and_install.ps1                  # 构建 + 装 + 热重载 + 打日志
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File tools\build_and_install.ps1 -SkipBuild        # 只装已有的包
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File tools\build_and_install.ps1 -BuildOnly        # 只编译 debug + release
 param(
     [switch]$SkipBuild,
     [switch]$Release,
+    [switch]$DebugBuild,
+    [switch]$BuildOnly,
     [string]$Serial = "emulator-5554",
     [int]$WaitSeconds = 22
 )
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
-$workspace = Split-Path -Parent (Split-Path -Parent $repo)
+$workspace = Split-Path -Parent $repo
 Set-Location $repo
 
 $env:JAVA_HOME = "$workspace\_tools\jdk-21.0.12.1+1"
 $env:GRADLE_USER_HOME = "$workspace\_tools\gradle-home"
 
-$variant = if ($Release) { "release" } else { "debug" }
-$apkDir = "app\build\outputs\apk\$variant"
+if (($Release -and $DebugBuild) -or ($BuildOnly -and $SkipBuild)) {
+    throw "参数组合冲突"
+}
 
 if (-not $SkipBuild) {
     # 每次构建同时出 debug + release：release 是测试/发布主包，debug 用于带符号排查
     Write-Host "== 构建 debug + release ==" -ForegroundColor Cyan
-    & .\gradlew.bat --no-daemon :app:assembleDebug :app:assembleRelease 2>&1 |
-        Select-String -Pattern '^e: |error:|BUILD (SUCCESSFUL|FAILED)' | ForEach-Object { $_.Line }
+    & .\gradlew.bat --no-daemon :app:assembleDebug :app:assembleRelease
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-# 测试优先 release（正式包、R8 混淆后行为与发布一致）；-DebugBuild 强制用 debug 排查
-$preferredDir = if ($Release) { "app\build\outputs\apk\release" } else { "app\build\outputs\apk\release" }
+if ($BuildOnly) { return }
+
+# 默认安装 release。显式选择包类型时，缺包直接报错。
+$variants = if ($DebugBuild) { @("debug") } elseif ($Release) { @("release") } else { @("release", "debug") }
 $apk = $null
-foreach ($dir in @($preferredDir, "app\build\outputs\apk\debug")) {
-    if ($DebugBuild -and $dir -match 'release') { continue }
+foreach ($variant in $variants) {
+    $dir = "app\build\outputs\apk\$variant"
     $candidate = Get-ChildItem "$dir\*.apk" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($candidate) { $apk = $candidate; break }
@@ -47,6 +52,7 @@ foreach ($dir in @($preferredDir, "app\build\outputs\apk\debug")) {
 if (-not $apk) { Write-Host "!! 找不到 APK" -ForegroundColor Red; exit 1 }
 Write-Host "== 安装 $($apk.Name) ($([math]::Round($apk.Length/1MB,1)) MB) ==" -ForegroundColor Cyan
 & adb -s $Serial install -r -g $apk.FullName 2>&1 | Select-Object -Last 2
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $lspctl = "/data/adb/modules/zygisk_lsposed/lspctl"
 Write-Host "== 启用模块 + 作用域 ==" -ForegroundColor Cyan

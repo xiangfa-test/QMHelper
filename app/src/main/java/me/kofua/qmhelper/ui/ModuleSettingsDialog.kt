@@ -17,6 +17,7 @@ import me.kofua.qmhelper.setting.SettingPack
 import me.kofua.qmhelper.utils.Log
 import me.kofua.qmhelper.utils.isBlackSkinInUse
 import me.kofua.qmhelper.utils.dp
+import me.kofua.qmhelper.utils.string
 
 /**
  * 模块设置面板（**自带 UI，不再代理宿主的设置 Fragment**）。
@@ -74,7 +75,7 @@ object ModuleSettingsDialog {
                             Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
                 }
             val d = AlertDialog.Builder(context)
-                .setTitle(R.string.app_name)
+                .setTitle(string(R.string.app_name))
                 .setView(buildContent(context, dark))
                 .setNegativeButton(android.R.string.cancel, null)
                 .create()

@@ -17,9 +17,9 @@ object Log {
             for (i in 0..chunkCount) {
                 val max: Int = maxLength * (i + 1)
                 if (max >= str.length) {
-                    doLog(f, str.substring(maxLength * i))
+                    doLog(f, str.substring(maxLength * i), toXposed)
                 } else {
-                    doLog(f, str.substring(maxLength * i, max))
+                    doLog(f, str.substring(maxLength * i, max), toXposed)
                 }
             }
         } else {

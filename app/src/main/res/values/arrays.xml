@@ -22,12 +22,19 @@
         <item>创作者中心</item>
         <item>弹一弹</item>
         <item>免流量服务</item>
-        <item>青少年模式</item>
+        <item>未成年模式</item>
         <item>安全中心</item>
         <item>帮助与反馈</item>
         <item>注销帐号</item>
         <item>腾讯视频VIP福利</item>
-        <item>百变彩铃</item>
+        <item>铃声专区</item>
+        <item>移动用户免流送会员</item>
+        <item>免流量听歌送会员</item>
+        <item>智能设备会员专区</item>
+        <item>装扮中心（顶部）</item>
+        <item>成就勋章（顶部）</item>
+        <item>歌曲加热（顶部）</item>
+        <item>星光农场（顶部）</item>
     </string-array>
     <string-array name="more_items_values" translatable="false">
         <item>音乐推</item>
@@ -40,6 +47,13 @@
         <item>注销帐号</item>
         <item>腾讯视频VIP福利</item>
         <item>百变彩铃</item>
+        <item>移动用户免流送会员</item>
+        <item>免流量听歌送会员</item>
+        <item>智能设备会员专区</item>
+        <item>top:装扮中心</item>
+        <item>top:成就勋章</item>
+        <item>top:歌曲加热</item>
+        <item>top:星光农场</item>
     </string-array>
 
     <array name="purify_search_entries">

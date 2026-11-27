@@ -269,7 +269,6 @@ class HookInfo : Serializable {
     var gson: Gson = Gson()
     var uiModeManager: UiModeManager = UiModeManager()
     var adBar: ApkDownloadAdBar = ApkDownloadAdBar()
-    var musicWorldTouchListener: Class = defClazz
     var eKeyManager: AudioStreamEKeyManager = AudioStreamEKeyManager()
     var eKeyDecryptor: EKeyDecryptor = EKeyDecryptor()
     var vipDownloadHelper: VipDownloadHelper = VipDownloadHelper()

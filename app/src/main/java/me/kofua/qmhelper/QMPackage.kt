@@ -562,16 +562,6 @@ class QMPackage private constructor() {
                 this.clazz = clazz { name = clazz.name }
                 this.methods = methods.map { method { name = it.name } }
             }
-            musicWorldTouchListener = clazz {
-                name = dexHelper.findMethodUsingString(
-                    "MusicWorldEntrance",
-                    findFirst = false,
-                ).asSequence().firstNotNullOfOrNull {
-                    dexHelper.decodeMethodIndex(it)?.declaringClass?.takeIf { c ->
-                        View.OnTouchListener::class.java.isAssignableFrom(c)
-                    }
-                }?.name ?: return@clazz
-            }
             eKeyManager = AudioStreamEKeyManager().apply {
                 val getFileEKeyMethod = dexHelper.findMethodUsingString(
                     "getFileEKey filePath is empty!"
@@ -819,21 +809,31 @@ class QMPackage private constructor() {
                 getUA = method { name = getUAMethod.name }
             }
             userManager = UserManager().apply {
-                val getMusicUinMethod = dexHelper.findMethodUsingString("getMusicUin")
-                    .firstOrNull()?.let { dexHelper.decodeMethodIndex(it) } ?: return@apply
-                val clazz = getMusicUinMethod.declaringClass
-                val getMethod = clazz.declaredMethods.find {
-                    it.isStatic && it.returnType == clazz && it.parameterTypes.isEmpty()
-                } ?: return@apply
-                val clazzIndex = dexHelper.encodeClassIndex(clazz)
-                val isLoginMethod = dexHelper.findMethodUsingString(
-                    "isLogin",
-                    declaringClass = clazzIndex
-                ).firstOrNull()?.let { dexHelper.decodeMethodIndex(it) } ?: return@apply
-                this.clazz = clazz { name = clazz.name }
-                get = method { name = getMethod.name }
-                getMusicUin = method { name = getMusicUinMethod.name }
-                isLogin = method { name = isLoginMethod.name }
+                val candidates = dexHelper.findMethodUsingString(
+                    "getMusicUin",
+                    matchPrefix = true,
+                    returnType = String::class.java,
+                    parameterCount = 0,
+                    findFirst = false,
+                )
+                for (getMusicUinMethod in candidates) {
+                    val owner = getMusicUinMethod.declaringClass
+                    val getMethod = owner.declaredMethods.firstOrNull {
+                        it.isStatic && it.returnType == owner && it.parameterTypes.isEmpty()
+                    } ?: continue
+                    val isLoginMethod = dexHelper.findMethodUsingString(
+                        "isLogin",
+                        matchPrefix = true,
+                        declaringClass = owner,
+                        returnType = Boolean::class.javaPrimitiveType,
+                        parameterCount = 0,
+                    ).firstOrNull() ?: continue
+                    clazz = clazz { name = owner.name }
+                    get = method { name = getMethod.name }
+                    getMusicUin = method { name = getMusicUinMethod.name }
+                    isLogin = method { name = isLoginMethod.name }
+                    break
+                }
             }
             bannerManager = BannerManager().apply {
                 val method = dexHelper.findMethodUsingString("[requestAdvertisement] start")

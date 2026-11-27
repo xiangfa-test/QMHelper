@@ -1,6 +1,5 @@
 package me.kofua.qmhelper.hook
 
-import android.view.MotionEvent
 import android.view.View
 import me.kofua.qmhelper.from
 import me.kofua.qmhelper.hookInfo
@@ -8,7 +7,21 @@ import me.kofua.qmhelper.utils.*
 
 object HomePageHook : BaseHook {
 
+    // These obfuscated methods were verified against QQ Music 21.0.5.5.
+    val supportsMinePullRemoval by lazy { getVersionCode(hostPackageName) == 7755 }
+
     override fun hook() {
+        if (supportsMinePullRemoval && sPrefs.getBoolean("hide_mine_pull_entrance", false)) {
+            val controller = "com.tencent.qqmusic.fragment.mymusic.my.mytabpull.l".from(classLoader)
+            val canPull = controller?.declaredMethods?.firstOrNull {
+                it.name == "i" && it.parameterCount == 0 && it.returnType == Boolean::class.javaPrimitiveType
+            }
+            if (canPull?.replace { false } != null) {
+                Log.d("我的页：已关闭顶部下拉活动入口")
+            } else {
+                Log.w("我的页：未定位到顶部下拉活动入口")
+            }
+        }
         if (sPrefs.getBoolean("hide_music_world", false)) {
             // 21.x：音乐世界 = cocos 容器，唯一入口是 MusicWorldActivity.Companion.startGame(...)。
             // 直接拦 startGame（含 $default 桥接），点了也进不去；老的 pullEntrance / mainDesktopHeader
@@ -30,6 +43,18 @@ object HomePageHook : BaseHook {
             hookInfo.topAreaDelegate.replaceMethod({ initLiveGuide }) { null }
             hookInfo.topAreaDelegate.showCurListen.name.ifNotEmpty {
                 hookInfo.topAreaDelegate.replaceMethod({ showCurListen }) { null }
+            }
+            if (supportsMinePullRemoval) {
+                val manager = "com.tencent.qqmusic.business.currentlisten.c".from(classLoader)
+                val canShowLabel = manager?.declaredMethods?.firstOrNull {
+                    it.name == "m" && it.returnType == Boolean::class.javaPrimitiveType &&
+                        it.parameterTypes.singleOrNull()?.name == "com.tencent.qqmusicplayerprocess.songinfo.SongInfo"
+                }
+                if (canShowLabel?.replace { false } != null) {
+                    Log.d("当前收听：已关闭歌曲页和歌词页的在听标签")
+                } else {
+                    Log.w("当前收听：未定位到在听标签显示条件")
+                }
             }
         }
         if (sPrefs.getBoolean("purify_share_guide", false)) {
@@ -62,10 +87,6 @@ object HomePageHook : BaseHook {
                         view.callMethod(methodA)
                 }
             }
-        }
-        if (sPrefs.getBoolean("forbid_music_world", false)) {
-            hookInfo.musicWorldTouchListener.from(classLoader)
-                ?.replaceMethod("onTouch", View::class.java, MotionEvent::class.java) { false }
         }
         if (sPrefs.getBoolean("block_bottom_tips", false)) {
             hookInfo.bottomTipController.replaceMethod({ updateBottomTips }) { null }

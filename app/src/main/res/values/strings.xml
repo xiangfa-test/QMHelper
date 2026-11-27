@@ -18,6 +18,9 @@
     <string name="prefs_share_log_title">分享日志</string>
     <string name="save_prefs_file">保存配置文件</string>
     <string name="choose_prefs_file">选择配置文件</string>
+    <string name="prefs_export_success">配置已导出</string>
+    <string name="prefs_export_failed">配置导出失败</string>
+    <string name="prefs_import_failed">配置导入失败，请检查备份文件</string>
     <string name="open_file_manager_failed">文件管理器打开失败</string>
     <string name="not_found_log_file">没有发现日志文件</string>
     <string name="log_file_not_exist">日志文件不存在</string>
@@ -34,8 +37,10 @@
     <string name="prefs_hide_music_world_summary">我的页面隐藏音乐空间入口</string>
     <string name="prefs_hide_vip_bubble_title">隐藏会员购买横条</string>
     <string name="prefs_hide_vip_bubble_summary">日推及我的页面隐藏会员购买横条</string>
+    <string name="prefs_hide_mine_pull_entrance_title">隐藏我的页下拉入口</string>
+    <string name="prefs_hide_mine_pull_entrance_summary">屏蔽顶部下拉金币中心等活动入口，重启客户端后生效</string>
     <string name="prefs_purify_live_guide_title">屏蔽直播入口</string>
-    <string name="prefs_purify_live_guide_summary">播放页右上角屏蔽直播入口</string>
+    <string name="prefs_purify_live_guide_summary">屏蔽播放页的直播引导和当前收听标签</string>
     <string name="prefs_forbid_slide_title">禁止上划查看视频</string>
     <string name="prefs_forbid_slide_summary">播放页禁止上划查看视频</string>
     <string name="tips_title">Q音助手提示</string>
@@ -64,8 +69,6 @@
     <string name="prefs_purify_search_title">净化搜索</string>
     <string name="prefs_hide_ad_bar_title">隐藏推广横条</string>
     <string name="prefs_hide_ad_bar_summary">我的收藏页面隐藏推广横条</string>
-    <string name="prefs_forbid_music_world_title">隐藏音乐空间</string>
-    <string name="prefs_forbid_music_world_summary">我的页面禁止下拉进入音乐空间</string>
     <string name="prefs_category_hidden">隐藏功能</string>
     <string name="prefs_hidden_title">启用隐藏功能</string>
     <string name="prefs_hidden_summary">所有隐藏功能仅供学习交流，请低调使用</string>
@@ -120,6 +123,9 @@
     <string name="prefs_unlock_theme_title">解锁所有装扮</string>
     <string name="prefs_daily_sign_in_title">自动签到</string>
     <string name="prefs_daily_sign_in_summary">APP启动后每天自动签到一次</string>
+    <string name="prefs_vip_station_sign_in_title">会员星动福利站自动签到</string>
+    <string name="prefs_vip_station_sign_in_summary">启动后检查今日签到状态，未签到时自动签到</string>
+    <string name="vip_station_sign_in_success">会员星动福利站签到完成</string>
     <string name="daily_sign_in_success">自动签到完成！</string>
     <string name="prefs_unlock_font_title">解锁所有字体</string>
     <string name="prefs_unlock_font_summary">解锁所有歌词及歌词海报字体</string>
