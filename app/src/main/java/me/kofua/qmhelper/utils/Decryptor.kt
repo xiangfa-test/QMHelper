@@ -147,6 +147,9 @@ object Decryptor {
             Log.w("解密失败：${src.name}（写入目标文件失败）")
             return false
         }
+        if (CoverArt.attach(dest, src.absolutePath, container)) {
+            Log.d("封面已写入：${dest.name}")
+        }
         scanFile(dest)
         Log.d("解密完成：${src.name} -> ${dest.absolutePath}（${dest.length()} 字节）")
         return true
