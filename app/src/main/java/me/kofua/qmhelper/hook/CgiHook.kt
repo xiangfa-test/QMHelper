@@ -22,9 +22,18 @@ object CgiHook : BaseHook {
         val blockCommonAds = sPrefs.getBoolean("block_common_ads", false)
         val purifyRedDots = sPrefs.getBoolean("purify_red_dots", false)
         val hideSongListGuide = sPrefs.getBoolean("hide_song_list_guide", false)
+        val dumpAdCgi = sPrefs.getBoolean("dump_ad_cgi", false)
 
         hookInfo.jsonRespParser.hookBeforeMethod({ parseModuleItem }) out@{ param ->
             val path = param.args[1] as? String
+            if (dumpAdCgi && path != null) {
+                // 调试用：带广告/Banner 字段的响应完整打出来，其余接口只打路径+开头，
+                // 这样「我的」页这种服务端驱动的运营位也能看出是哪个接口给的。
+                val json = param.args[2]?.toString() ?: ""
+                val interesting = json.contains("musicadtype", true) || json.contains("banner", true) ||
+                    json.contains("promotion", true) || json.contains("\"ad\"", true)
+                Log.d("广告CGI${if (interesting) "*" else ""} [$path] ${json.take(if (interesting) 1500 else 200)}")
+            }
             if (BuildConfig.DEBUG && path != "traceid") {
                 val json = param.args[2]?.toString() ?: return@out
                 Log.d("net.cgi, path: $path, json: $json")

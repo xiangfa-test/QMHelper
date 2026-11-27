@@ -243,6 +243,11 @@ class SettingPack {
                 "unlock_lyric_kinetic",
                 R.string.prefs_unlock_lyric_kinetic_title
             )?.let { add(it) }
+            Setting.switch(
+                "dump_ad_cgi",
+                R.string.prefs_dump_ad_cgi_title,
+                R.string.prefs_dump_ad_cgi_summary,
+            )?.let { add(it) }
         }
 
         Setting.category(R.string.prefs_category_settings)
